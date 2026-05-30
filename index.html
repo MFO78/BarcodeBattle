@@ -48,7 +48,7 @@
         <!-- Header -->
         <header class="bg-slate-950 p-4 flex justify-between items-center border-b border-slate-700 shrink-0">
             <h1 class="text-xl font-bold text-amber-400"><i class="fa-solid fa-barcode mr-2"></i>Code Battler</h1>
-            <span id="playerStatus" class="text-xs font-mono text-slate-400">Offline</span>
+            <span id="playerStatus" class="text-xs font-mono text-slate-400"><i class="fa-solid fa-spinner fa-spin"></i> Checking...</span>
         </header>
 
         <!-- SCREEN: Main Menu -->
@@ -77,9 +77,12 @@
                 <button onclick="app.startMatchmaking('cpu')" id="btnVsCpu" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
                     <i class="fa-solid fa-robot mb-1 block text-xl"></i> Vs CPU
                 </button>
-                <button onclick="app.showScreen('multiplayer')" id="btnVsPlayer" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
-                    <i class="fa-solid fa-users mb-1 block text-xl"></i> Multiplayer
-                </button>
+                <div class="relative w-full">
+                    <button onclick="app.showScreen('multiplayer')" id="btnVsPlayer" disabled class="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-users mb-1 block text-xl"></i> P2P Battle
+                    </button>
+                    <div id="multiplayerWarning" class="hidden absolute -bottom-6 w-full text-center text-[10px] text-red-400">Database not configured</div>
+                </div>
             </div>
         </main>
 
@@ -89,14 +92,20 @@
                 <h2 class="font-bold">Scan Code</h2>
                 <button onclick="app.stopScanner()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
             </div>
+            
+            <div id="scannerError" class="hidden bg-red-900/80 text-red-200 text-xs p-3 text-center border-b border-red-700">
+                <i class="fa-solid fa-triangle-exclamation"></i> Camera blocked. Ensure you are running this on <strong>localhost</strong> or <strong>HTTPS</strong>. Use manual simulation below.
+            </div>
+
             <div class="flex-1 relative flex items-center justify-center overflow-hidden">
                 <div id="reader" class="w-full h-full max-h-[500px]"></div>
             </div>
-            <div class="p-4 bg-slate-900 shrink-0">
-                <p class="text-xs text-center text-slate-400 mb-3">Scan any Barcode or QR Code to generate a hero.</p>
+            
+            <div class="p-4 bg-slate-900 shrink-0 border-t border-slate-800">
+                <p class="text-xs text-center text-slate-400 mb-3">Scan any Barcode or QR Code to generate a hero. Data is processed locally.</p>
                 <div class="flex gap-2">
-                    <input type="text" id="manualCode" placeholder="Or enter mock code..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
-                    <button onclick="app.handleScan(document.getElementById('manualCode').value)" class="bg-slate-700 px-4 py-2 rounded-lg hover:bg-slate-600">Simulate</button>
+                    <input type="text" id="manualCode" placeholder="Or enter manual mock code..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
+                    <button onclick="app.handleScan(document.getElementById('manualCode').value)" class="bg-amber-600 px-4 py-2 rounded-lg hover:bg-amber-500 font-bold transition-colors">Simulate</button>
                 </div>
             </div>
         </main>
@@ -253,14 +262,13 @@
     <!-- Firebase SDKs (v11) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==========================================
         // 1. UTILITIES & GENERATION
         // ==========================================
         const Utils = {
-            // Simple string to pseudo-random hash array (8 bytes)
             hashString: (str) => {
                 let hash = 0;
                 for (let i = 0; i < str.length; i++) {
@@ -269,7 +277,6 @@
                     hash |= 0; 
                 }
                 const seed = Math.abs(hash);
-                // Extract 8 specific pseudo-random chunks (0-255)
                 return [
                     (seed >> 24) & 255, (seed >> 16) & 255, (seed >> 8) & 255, seed & 255,
                     (seed * 13 >> 16) & 255, (seed * 17 >> 8) & 255, (seed * 23) & 255, (seed * 31 >> 4) & 255
@@ -281,36 +288,25 @@
         };
 
         const SvgGenerator = {
-            // Modular SVG parts
             heads: [
-                // 0: Blocky Helmet
                 `<rect x="35" y="10" width="30" height="30" rx="4" fill="currentColor"/><path d="M40 25 h20 M50 25 v15" stroke="#1e293b" stroke-width="2"/>`,
-                // 1: Spiked
                 `<polygon points="50,5 30,35 70,35" fill="currentColor"/><circle cx="50" cy="25" r="5" fill="#1e293b"/>`,
-                // 2: Round Visor
                 `<circle cx="50" cy="25" r="18" fill="currentColor"/><rect x="40" y="20" width="20" height="8" rx="4" fill="#1e293b"/>`
             ],
             bodies: [
-                // 0: Heavy Armour
                 `<rect x="25" y="40" width="50" height="40" rx="8" fill="currentColor"/><path d="M25 50 h50 M25 70 h50" stroke="#1e293b" stroke-width="2"/>`,
-                // 1: Agile
                 `<polygon points="50,40 20,80 80,80" fill="currentColor"/><circle cx="50" cy="60" r="10" fill="#1e293b"/>`,
-                // 2: Tech Core
                 `<rect x="35" y="40" width="30" height="50" rx="15" fill="currentColor"/><rect x="45" y="55" width="10" height="20" fill="#38bdf8"/>`
             ],
             weapons: [
-                // 0: Sword
                 `<rect x="80" y="30" width="6" height="50" fill="#94a3b8"/><rect x="75" y="60" width="16" height="6" fill="currentColor"/>`,
-                // 1: Axe
                 `<rect x="80" y="30" width="6" height="60" fill="#78350f"/><path d="M86 40 Q 100 40 100 55 Q 100 70 86 70 Z" fill="currentColor"/>`,
-                // 2: Staff
                 `<rect x="80" y="20" width="4" height="70" fill="#78350f"/><circle cx="82" cy="20" r="8" fill="currentColor"/>`
             ],
             arms: `<rect x="15" y="45" width="10" height="25" rx="5" fill="currentColor"/><rect x="75" y="45" width="10" height="25" rx="5" fill="currentColor"/>`,
             legs: `<rect x="35" y="80" width="10" height="15" fill="currentColor"/><rect x="55" y="80" width="10" height="15" fill="currentColor"/>`,
             
             build: (hashArray) => {
-                // hashArray is [0-255] * 8
                 const head = SvgGenerator.heads[hashArray[4] % 3];
                 const body = SvgGenerator.bodies[hashArray[5] % 3];
                 const weapon = SvgGenerator.weapons[hashArray[6] % 3];
@@ -331,32 +327,21 @@
             constructor(code) {
                 this.code = code;
                 const hash = Utils.hashString(code);
-                
-                // Statistics Generation based on hash chunks
-                // HP: 50-150
                 this.maxHp = 50 + Math.floor((hash[0] / 255) * 100);
                 this.hp = this.maxHp;
-                // STR: 5-20
                 this.str = 5 + Math.floor((hash[1] / 255) * 15);
-                // DEF: 1-10
                 this.def = 1 + Math.floor((hash[2] / 255) * 9);
-                // SPD: 1-20 (Determines who goes first in vs mode)
                 this.spd = 1 + Math.floor((hash[3] / 255) * 19);
-                
                 this.svg = SvgGenerator.build(hash);
-                
-                // Extract a 4 char prefix for the name
                 this.name = "Unit-" + code.toString().substring(0, 4).toUpperCase();
             }
 
-            // Convert to plain object for Firebase
             toObject() {
                 return { code: this.code, maxHp: this.maxHp, hp: this.hp, str: this.str, def: this.def, spd: this.spd, svg: this.svg, name: this.name };
             }
             
-            // Reconstruct from plain object
             static fromObject(obj) {
-                let h = new Hero("mock"); // dummy init
+                let h = new Hero("mock");
                 Object.assign(h, obj);
                 return h;
             }
@@ -374,24 +359,30 @@
                 this.lobbyId = null;
                 this.unsubscribe = null;
                 this.appId = typeof __app_id !== 'undefined' ? __app_id : 'barcode-battler';
-                this.role = null; // 'host' or 'guest'
+                this.role = null;
                 this.initialised = false;
+                this.enabled = true;
             }
 
             async init() {
                 if (this.initialised) return;
                 try {
                     const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+                    
                     if(configStr === '{}') {
-                        console.warn("No Firebase config found. Multiplayer disabled.");
-                        return false;
+                        // Crucial fix: Graceful degradation for local files
+                        this.enabled = false;
+                        document.getElementById('playerStatus').innerText = "Local Only";
+                        document.getElementById('playerStatus').classList.replace('text-slate-400', 'text-amber-500');
+                        document.getElementById('multiplayerWarning').classList.remove('hidden');
+                        return false; 
                     }
+
                     const firebaseConfig = JSON.parse(configStr);
                     this.app = initializeApp(firebaseConfig);
                     this.auth = getAuth(this.app);
                     this.db = getFirestore(this.app);
 
-                    // Authenticaton (Rule 3)
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                         await signInWithCustomToken(this.auth, __initial_auth_token);
                     } else {
@@ -405,18 +396,18 @@
                     return true;
                 } catch (e) {
                     console.error("Firebase init failed:", e);
-                    document.getElementById('playerStatus').innerText = "Offline";
+                    document.getElementById('playerStatus').innerText = "Offline (Error)";
+                    this.enabled = false;
                     return false;
                 }
             }
 
             getLobbyRef(id) {
-                // Rule 1: Strict Paths
                 return doc(this.db, 'artifacts', this.appId, 'public', 'data', 'lobbies', id);
             }
 
             async hostGame(hero) {
-                if (!this.user) return false;
+                if (!this.user || !this.enabled) return false;
                 this.role = 'host';
                 this.lobbyId = Utils.generateCode();
                 
@@ -426,7 +417,7 @@
                     host: hero.toObject(),
                     guest: null,
                     turn: 'none',
-                    actionQueue: null, // format: { player: 'host', roll: 4, dmg: 10 }
+                    actionQueue: null,
                     timestamp: new Date().getTime()
                 });
 
@@ -435,7 +426,7 @@
             }
 
             async joinGame(id, hero) {
-                if (!this.user) return false;
+                if (!this.user || !this.enabled) return false;
                 this.role = 'guest';
                 this.lobbyId = id.toUpperCase();
                 const lobbyRef = this.getLobbyRef(this.lobbyId);
@@ -443,7 +434,6 @@
                 const docSnap = await getDoc(lobbyRef);
                 if (docSnap.exists() && docSnap.data().state === 'waiting') {
                     const hostSpd = docSnap.data().host.spd;
-                    // Determine first turn
                     const firstTurn = hostSpd >= hero.spd ? 'host' : 'guest';
 
                     await updateDoc(lobbyRef, {
@@ -454,7 +444,7 @@
                     this.listenToLobby();
                     return true;
                 }
-                return false; // Lobby full or not found
+                return false;
             }
 
             listenToLobby() {
@@ -501,8 +491,8 @@
             playerHero: null,
             enemyHero: null,
             html5QrcodeScanner: null,
-            mode: 'menu', // menu, scanner, reveal, multiplayer, battle
-            battleMode: 'cpu', // cpu, pvp
+            mode: 'menu',
+            battleMode: 'cpu',
             network: new Multiplayer(),
             lastProcessedActionTime: 0,
 
@@ -516,13 +506,12 @@
                 document.getElementById('screen-' + id).classList.add('active');
                 GameController.mode = id;
 
-                // Stop scanner if leaving
                 if (id !== 'scanner' && GameController.html5QrcodeScanner) {
                     GameController.stopScanner();
                 }
 
-                // Initialise scanner if entering
                 if (id === 'scanner') {
+                    document.getElementById('scannerError').classList.add('hidden');
                     GameController.startScanner();
                 }
             },
@@ -538,10 +527,11 @@
                     { facingMode: "environment" }, 
                     config, 
                     (decodedText) => GameController.handleScan(decodedText),
-                    (error) => {} // ignore stream errors
+                    (error) => {} 
                 ).catch(err => {
-                    console.log("Camera access error. Show manual input fallback.", err);
-                    // Fallback is already in UI
+                    // Crucial fix: Display error to user when camera access is denied by browser policy
+                    console.warn("Camera access denied or unavailable. Likely insecure context (file://).", err);
+                    document.getElementById('scannerError').classList.remove('hidden');
                 });
             },
 
@@ -558,7 +548,6 @@
                 
                 const h = new Hero(code);
                 
-                // Update Reveal UI
                 document.getElementById('revealTitle').innerText = "Hero Discovered!";
                 document.getElementById('revealVisual').innerHTML = h.svg;
                 document.getElementById('revealName').innerText = h.name;
@@ -574,11 +563,13 @@
             keepHero: () => {
                 if(!GameController.playerHero) return;
                 
-                // Enable battle buttons
                 document.getElementById('btnVsCpu').disabled = false;
-                document.getElementById('btnVsPlayer').disabled = false;
                 
-                // Update Menu Preview
+                // Only enable multiplayer if the network backend successfully initialised
+                if(GameController.network.enabled) {
+                    document.getElementById('btnVsPlayer').disabled = false;
+                }
+                
                 document.getElementById('currentHeroPreview').classList.remove('hidden');
                 document.getElementById('menuHeroVisual').innerHTML = GameController.playerHero.svg;
                 document.getElementById('menuHeroHP').innerHTML = `<i class="fa-solid fa-heart text-red-500"></i> ${GameController.playerHero.hp}`;
@@ -633,10 +624,8 @@
 
             onNetworkSync: async (state) => {
                 if (state.state === 'playing' && GameController.mode === 'multiplayer') {
-                    // Transition to battle
                     GameController.battleMode = 'pvp';
                     
-                    // Assign opponent
                     if (GameController.network.role === 'host') {
                         GameController.enemyHero = Hero.fromObject(state.guest);
                     } else {
@@ -651,23 +640,19 @@
                 if (state.state === 'playing' && GameController.mode === 'battle') {
                     GameController.updatePvpTurnState(state.turn);
                     
-                    // Process action if exists and new
                     if (state.actionQueue && state.actionQueue.time > GameController.lastProcessedActionTime) {
                         GameController.lastProcessedActionTime = state.actionQueue.time;
                         
-                        // If it's the opponent's action, play the animation locally
                         if (state.actionQueue.player !== GameController.network.role) {
                             await GameController.processEnemyAction(state.actionQueue.roll, state.actionQueue.dmg);
                         }
                     }
 
-                    // Check win states
                     if (GameController.playerHero.hp <= 0) GameController.endBattle(false);
                     else if (GameController.enemyHero.hp <= 0) GameController.endBattle(true);
                 }
 
                 if (state.state === 'finished' && GameController.mode === 'battle') {
-                     // Failsafe if network beat local calculation
                      if (state.winner === GameController.network.role) GameController.endBattle(true);
                      else GameController.endBattle(false);
                 }
@@ -684,9 +669,7 @@
             startMatchmaking: (type) => {
                 if(type === 'cpu') {
                     GameController.battleMode = 'cpu';
-                    // Generate random CPU
                     GameController.enemyHero = new Hero("CPU-" + Utils.generateCode() + Utils.generateCode());
-                    // Level scaling (roughly similar HP)
                     GameController.enemyHero.maxHp = GameController.playerHero.maxHp + (Math.floor(Math.random()*40)-20);
                     if(GameController.enemyHero.maxHp < 10) GameController.enemyHero.maxHp = 10;
                     GameController.enemyHero.hp = GameController.enemyHero.maxHp;
@@ -694,7 +677,6 @@
                     GameController.initBattleUI();
                     GameController.showScreen('battle');
                     
-                    // CPU speed check
                     if (GameController.enemyHero.spd > GameController.playerHero.spd) {
                         GameController.cpuTurn();
                     } else {
@@ -707,7 +689,6 @@
             initBattleUI: () => {
                 document.getElementById('playerVisual').innerHTML = GameController.playerHero.svg;
                 document.getElementById('enemyVisual').innerHTML = GameController.enemyHero.svg;
-                
                 document.getElementById('enemyName').innerText = GameController.enemyHero.name;
                 
                 GameController.updateHpBars();
@@ -736,7 +717,6 @@
                 target.appendChild(dmgEl);
                 setTimeout(() => dmgEl.remove(), 1000);
                 
-                // Hit effect
                 target.querySelector('svg').classList.add('hit');
                 setTimeout(() => target.querySelector('svg').classList.remove('hit'), 200);
             },
@@ -752,12 +732,11 @@
             rollDice: async () => {
                 document.getElementById('btnRollDice').disabled = true;
                 
-                // UI Anim
                 const diceEl = document.getElementById('diceDisplay');
                 diceEl.classList.add('rolling');
                 document.getElementById('actionText').innerText = "Rolling...";
                 
-                await Utils.sleep(500); // Wait for animation half
+                await Utils.sleep(500); 
                 
                 const roll = Utils.rollDie();
                 diceEl.classList.remove('rolling');
@@ -781,9 +760,7 @@
                         GameController.cpuTurn();
                     }
                 } else if (GameController.battleMode === 'pvp') {
-                    // Send to network, update UI locally
                     await GameController.network.sendAction(roll, dmg);
-                    // Local state update handled by onSnapshot listener if alive
                 }
             },
 
@@ -865,27 +842,20 @@
                     title.className = "text-5xl font-bold mb-2 uppercase italic tracking-tighter text-red-500";
                     desc.innerText = "Your hero has been destroyed.";
                     document.getElementById('btnKeepHero').classList.add('hidden');
-                    // Permadeath: clear current hero preview on menu
                     GameController.playerHero = null;
                     document.getElementById('currentHeroPreview').classList.add('hidden');
                     document.getElementById('btnVsCpu').disabled = true;
                     document.getElementById('btnVsPlayer').disabled = true;
                 }
                 
-                // Heal hero if won
                 if(playerWon && GameController.playerHero) {
                     GameController.playerHero.hp = GameController.playerHero.maxHp;
                 }
             }
         };
 
-        // Export to window for inline onclick handlers
         window.app = GameController;
-
-        // Init on load
-        window.onload = () => {
-            GameController.init();
-        };
+        window.onload = () => { GameController.init(); };
 
     </script>
 </body>
