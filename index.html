@@ -41,7 +41,7 @@
         
         /* Scanner Targeting Reticle */
         #reader__scan_region { position: relative; }
-        #reader__scan_region img { display: none; } /* Hide default scan img if present */
+        #reader__scan_region img { display: none; } 
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 h-screen w-screen overflow-hidden flex justify-center items-center">
@@ -97,8 +97,16 @@
                 <button onclick="app.stopScanner()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
             </div>
             
+            <!-- Hardware Selection UI for Multi-lens devices -->
+            <div id="cameraSelectorContainer" class="hidden bg-slate-800 p-2 border-b border-slate-700">
+                <label for="cameraSelect" class="text-xs text-slate-400 block mb-1">Select Lens (Find the autofocus one):</label>
+                <select id="cameraSelect" onchange="app.changeCamera(this.value)" class="w-full bg-slate-900 text-sm text-white p-2 rounded border border-slate-600 focus:border-amber-500 outline-none">
+                    <option value="">Loading cameras...</option>
+                </select>
+            </div>
+
             <div id="scannerError" class="hidden bg-red-900/80 text-red-200 text-xs p-3 text-center border-b border-red-700">
-                <i class="fa-solid fa-triangle-exclamation"></i> Camera blocked. Ensure you are running this on <strong>localhost</strong> or <strong>HTTPS</strong>. Use manual simulation below.
+                <i class="fa-solid fa-triangle-exclamation"></i> Camera access error. Ensure secure context.
             </div>
 
             <div class="flex-1 relative flex items-center justify-center overflow-hidden">
@@ -126,19 +134,19 @@
                 
                 <div class="grid grid-cols-2 gap-4 w-full z-10 font-mono text-sm">
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">HP (Stamina)</span>
+                        <span class="text-slate-400">HP</span>
                         <span id="revealHP" class="text-green-400 font-bold"></span>
                     </div>
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">STR (Strength)</span>
+                        <span class="text-slate-400">STR</span>
                         <span id="revealSTR" class="text-orange-400 font-bold"></span>
                     </div>
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">DEF (Defence)</span>
+                        <span class="text-slate-400">DEF</span>
                         <span id="revealDEF" class="text-blue-400 font-bold"></span>
                     </div>
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">SPD (Speed)</span>
+                        <span class="text-slate-400">SPD</span>
                         <span id="revealSPD" class="text-yellow-400 font-bold"></span>
                     </div>
                 </div>
@@ -162,7 +170,6 @@
             </div>
 
             <div class="space-y-6 flex-1 flex flex-col justify-center">
-                <!-- Host Game -->
                 <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center">
                     <h3 class="font-bold text-lg mb-2">Host a Battle</h3>
                     <p class="text-sm text-slate-400 mb-4">Create a lobby and share the code.</p>
@@ -182,7 +189,6 @@
                     <div class="h-px bg-slate-600 flex-1"></div>
                 </div>
 
-                <!-- Join Game -->
                 <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center">
                     <h3 class="font-bold text-lg mb-2">Join a Battle</h3>
                     <p class="text-sm text-slate-400 mb-4">Enter an opponent's lobby code.</p>
@@ -197,7 +203,6 @@
 
         <!-- SCREEN: Battle -->
         <main id="screen-battle" class="screen flex-1 flex-col relative bg-slate-900 overflow-hidden">
-            <!-- Top HUD: Opponent -->
             <div class="bg-slate-950 p-3 flex justify-between items-center border-b border-red-900/50 shrink-0 z-20">
                 <div class="flex flex-col">
                     <span id="enemyName" class="text-xs font-mono text-red-400">Enemy</span>
@@ -208,15 +213,11 @@
                 </div>
             </div>
 
-            <!-- Battle Arena -->
             <div class="flex-1 relative flex flex-col justify-between p-4 z-10" id="battleArena">
-                
-                <!-- Enemy Sprite -->
                 <div class="flex justify-center items-start h-1/2">
                     <div id="enemyVisual" class="w-32 h-32 hero-container transform transition-transform"></div>
                 </div>
                 
-                <!-- Center: Dice and Status -->
                 <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div class="flex flex-col items-center bg-slate-900/80 p-4 rounded-2xl border border-slate-700 backdrop-blur-sm shadow-2xl">
                         <span id="turnIndicator" class="text-sm font-bold text-amber-400 mb-2 uppercase tracking-widest">Your Turn</span>
@@ -227,13 +228,11 @@
                     </div>
                 </div>
 
-                <!-- Player Sprite -->
                 <div class="flex justify-center items-end h-1/2">
                     <div id="playerVisual" class="w-40 h-40 hero-container transform transition-transform scale-x-[-1]"></div>
                 </div>
             </div>
 
-            <!-- Bottom HUD: Player -->
             <div class="bg-slate-950 p-4 border-t border-slate-800 shrink-0 z-20">
                 <div class="flex justify-between items-center mb-3">
                     <div class="w-1/2 bg-slate-800 h-4 rounded-full overflow-hidden border border-slate-700">
@@ -250,7 +249,6 @@
             </div>
         </main>
 
-        <!-- Modal: Battle Result -->
         <div id="modalResult" class="absolute inset-0 bg-black/90 z-50 hidden flex-col items-center justify-center p-6 backdrop-blur-sm">
             <h2 id="resultTitle" class="text-5xl font-bold mb-2 uppercase italic tracking-tighter">Victory!</h2>
             <p id="resultDesc" class="text-slate-300 mb-8 text-center"></p>
@@ -494,6 +492,8 @@
             playerHero: null,
             enemyHero: null,
             html5QrcodeScanner: null,
+            availableCameras: [],
+            currentCameraId: null,
             mode: 'menu',
             battleMode: 'cpu',
             network: new Multiplayer(),
@@ -515,22 +515,61 @@
 
                 if (id === 'scanner') {
                     document.getElementById('scannerError').classList.add('hidden');
-                    GameController.startScanner();
+                    GameController.initHardwareScanner();
                 }
             },
 
-            // --- SCANNER ---
-            startScanner: () => {
+            // --- SCANNER WITH DEVICE ENUMERATION ---
+            initHardwareScanner: () => {
+                Html5Qrcode.getCameras().then(devices => {
+                    if (devices && devices.length) {
+                        GameController.availableCameras = devices;
+                        const selectEl = document.getElementById('cameraSelect');
+                        selectEl.innerHTML = '';
+                        
+                        devices.forEach(camera => {
+                            const opt = document.createElement('option');
+                            opt.value = camera.id;
+                            // Clean up device names for UI
+                            opt.text = camera.label || `Camera ${camera.id.substring(0, 5)}...`;
+                            selectEl.appendChild(opt);
+                        });
+                        
+                        document.getElementById('cameraSelectorContainer').classList.remove('hidden');
+                        
+                        // Default to the first camera in the enumerated list
+                        GameController.currentCameraId = devices[0].id;
+                        GameController.startScanner(GameController.currentCameraId);
+                    } else {
+                        throw new Error("No cameras found.");
+                    }
+                }).catch(err => {
+                    console.warn("Camera enumeration failed. Attempting fallback.", err);
+                    document.getElementById('scannerError').classList.remove('hidden');
+                });
+            },
+
+            changeCamera: async (deviceId) => {
+                if (GameController.html5QrcodeScanner && GameController.html5QrcodeScanner.isScanning) {
+                    await GameController.html5QrcodeScanner.stop();
+                }
+                GameController.currentCameraId = deviceId;
+                GameController.startScanner(deviceId);
+            },
+
+            startScanner: (cameraId) => {
                 if (!GameController.html5QrcodeScanner) {
-                    // Initialize the scanner engine
                     GameController.html5QrcodeScanner = new Html5Qrcode("reader");
                 }
                 
-                // Crucial Modification: Define a rectangular scan area suitable for 1D barcodes
-                // Explicitly declare supported formats to force the engine to look for EAN/UPC etc.
+                // Force high resolution and 1D specific formats
                 const config = { 
                     fps: 10, 
                     qrbox: { width: 300, height: 150 },
+                    videoConstraints: {
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    },
                     formatsToSupport: [
                         Html5QrcodeSupportedFormats.QR_CODE,
                         Html5QrcodeSupportedFormats.EAN_13,
@@ -542,14 +581,14 @@
                     ]
                 };
                 
+                // Use explicit deviceId instead of facingMode
                 GameController.html5QrcodeScanner.start(
-                    { facingMode: "environment" }, 
+                    cameraId, 
                     config, 
                     (decodedText) => GameController.handleScan(decodedText),
-                    (error) => { /* Ignored to prevent console spam during scanning */ } 
+                    (error) => { /* Ignored to prevent frame log spam */ } 
                 ).catch(err => {
-                    console.warn("Camera access denied or unavailable. Likely insecure context.", err);
-                    document.getElementById('scannerError').classList.remove('hidden');
+                    console.error("Camera start failed for ID: " + cameraId, err);
                 });
             },
 
@@ -582,7 +621,6 @@
                 if(!GameController.playerHero) return;
                 
                 document.getElementById('btnVsCpu').disabled = false;
-                
                 if(GameController.network.enabled) {
                     document.getElementById('btnVsPlayer').disabled = false;
                 }
