@@ -3,70 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Code Battler</title>
+    <title>Code Battler - Scanner Fixed</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: system-ui, -apple-system, sans-serif; overscroll-behavior: none; }
         .screen { display: none; }
         .screen.active { display: flex; flex-direction: column; }
-        .rolling { animation: roll 0.5s ease-in-out; }
-        @keyframes roll { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(180deg) scale(1.2); } 100% { transform: rotate(360deg) scale(1); } }
-        .damage-text { position: absolute; color: #ef4444; font-weight: bold; font-size: 2rem; animation: floatUp 1s forwards; pointer-events: none; z-index: 100; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
-        @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50px) scale(1.5); } }
-        /* Hero Scaling Fixes */
-        .hero-container { width: 100%; height: 30vh; display: flex; justify-content: center; align-items: center; }
-        .hero-svg { max-height: 100%; max-width: 100%; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5)); transition: transform 0.2s; }
-        .hero-container.hit { filter: brightness(2) sepia(1); }
+        #reader { width: 100%; height: 300px; display: block; }
+        #reader video { width: 100%; height: 100%; object-fit: cover; }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-100 h-[100dvh] w-screen overflow-hidden">
-    <div id="app" class="w-full h-[100dvh] bg-slate-800 relative flex flex-col">
-        <!-- Main Screens -->
-        <main id="screen-menu" class="screen active flex-1 p-6 justify-center items-center">
-            <h1 class="text-3xl font-bold text-amber-400 mb-8"><i class="fa-solid fa-barcode"></i> Code Battler</h1>
-            <button onclick="app.prepScan('p1')" class="w-full bg-amber-600 p-6 rounded-xl font-bold text-lg mb-4">Scan P1 Hero</button>
-            <button id="btnPassPlay" onclick="app.prepScan('p2')" disabled class="w-full bg-slate-700 p-6 rounded-xl font-bold text-lg opacity-50">Pass & Play (P2)</button>
+<body class="bg-slate-900 text-white overflow-hidden">
+    <div id="app" class="h-[100dvh] w-full flex flex-col">
+        <!-- Screens -->
+        <main id="screen-menu" class="screen active flex-1 items-center justify-center">
+            <h1 class="text-3xl font-bold mb-8">Barcode Battler</h1>
+            <button onclick="app.prepScan('p1')" class="bg-amber-600 p-6 rounded-lg w-4/5 font-bold">Scan P1</button>
         </main>
 
         <main id="screen-scanner" class="screen flex-1 bg-black">
-            <div class="flex-1 relative flex items-center justify-center">
-                <div id="reader" class="w-full"></div>
-            </div>
-            <button onclick="app.showScreen('menu')" class="p-4 bg-red-800 text-white font-bold">Cancel</button>
+            <div id="reader"></div>
+            <button onclick="app.closeScanner()" class="p-6 bg-red-800 text-white font-bold">Stop Scanner</button>
         </main>
-
-        <main id="screen-reveal" class="screen flex-1 p-6 items-center justify-center">
-            <div id="revealVisual" class="w-40 h-40 mb-4"></div>
-            <h2 id="revealName" class="text-xl font-bold mb-6"></h2>
-            <button onclick="app.finalizeHero()" class="w-full bg-green-600 p-4 rounded-xl font-bold">Confirm</button>
+        
+        <main id="screen-battle" class="screen flex-1 items-center justify-center">
+            <h2 class="text-2xl font-bold">Battle Active</h2>
+            <button onclick="app.executeTurn()" class="bg-green-600 p-6 rounded-lg">Attack!</button>
         </main>
-
-        <main id="screen-battle" class="screen flex-1 flex-col bg-slate-900">
-            <div class="p-4 border-b border-slate-700 flex justify-between bg-slate-950 shrink-0">
-                <div id="enemyHpBar" class="bg-red-500 h-2 transition-all" style="width:100%"></div>
-            </div>
-            <div class="flex-1 flex flex-col justify-center items-center overflow-hidden">
-                <div id="enemyVisual" class="hero-container"></div>
-                <div id="diceDisplay" class="my-4 p-4 bg-white text-black font-bold text-2xl rounded-lg">Roll</div>
-                <div id="playerVisual" class="hero-container transform scale-x-[-1]"></div>
-            </div>
-            <div class="p-4 bg-slate-950 shrink-0">
-                <button id="btnRollDice" onclick="app.executeTurn()" class="w-full bg-green-600 p-6 rounded-xl font-bold text-lg">Toss Dice & Attack</button>
-            </div>
-        </main>
-
-        <!-- Result Modal (Inside app container) -->
-        <div id="modalResult" class="absolute inset-0 bg-black/90 z-[100] hidden flex-col items-center justify-center p-6">
-            <h2 id="resultTitle" class="text-4xl font-bold mb-8">Victory</h2>
-            <button onclick="app.concludeBattle()" class="w-full bg-amber-600 p-6 rounded-xl font-bold text-lg">Return to Menu</button>
-        </div>
     </div>
 
     <script>
         const App = {
-            p1Hero: null, p2Hero: null, scanner: null,
+            scanner: null,
             init: () => { App.showScreen('menu'); },
             showScreen: (id) => {
                 document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -75,37 +43,32 @@
             prepScan: (ctx) => {
                 App.ctx = ctx;
                 App.showScreen('scanner');
-                App.scanner = new Html5Qrcode("reader");
-                App.scanner.start({facingMode: "environment"}, {fps: 10, qrbox: 200}, (d) => App.handleScan(d));
+                // Singleton instantiation
+                if (!App.scanner) App.scanner = new Html5Qrcode("reader");
+                
+                App.scanner.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: 200 },
+                    (d) => App.handleScan(d),
+                    (err) => { /* Suppress noisy errors */ }
+                ).catch(err => {
+                    console.error("Scanner startup failed", err);
+                    alert("Scanner failed. Please check permissions.");
+                });
             },
             handleScan: (code) => {
-                App.scanner.stop();
-                const h = { name: "Unit-" + code.substring(0,3), hp: 100, str: 10, svg: '<svg viewBox="0 0 100 100" class="hero-svg"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></svg>' };
-                if (App.ctx === 'p1') App.p1Hero = h; else App.p2Hero = h;
-                document.getElementById('revealVisual').innerHTML = h.svg;
-                document.getElementById('revealName').innerText = h.name;
-                App.showScreen('reveal');
+                App.closeScanner();
+                alert("Scanned: " + code);
+                App.showScreen('battle');
             },
-            finalizeHero: () => {
-                if(App.ctx === 'p2') { 
-                    document.getElementById('btnPassPlay').disabled = false;
-                    document.getElementById('btnPassPlay').style.opacity = '1';
-                    App.showScreen('battle');
-                } else {
-                    document.getElementById('btnPassPlay').disabled = false;
-                    document.getElementById('btnPassPlay').style.opacity = '1';
-                    App.showScreen('menu');
+            closeScanner: async () => {
+                if (App.scanner && App.scanner.isScanning) {
+                    await App.scanner.stop();
                 }
+                App.showScreen('menu');
             },
-            executeTurn: async () => {
-                document.getElementById('diceDisplay').innerText = Math.floor(Math.random()*6)+1;
-                document.getElementById('enemyVisual').classList.add('hit');
-                setTimeout(() => document.getElementById('enemyVisual').classList.remove('hit'), 300);
-                if(Math.random() > 0.7) App.endBattle();
-            },
-            endBattle: () => document.getElementById('modalResult').classList.replace('hidden', 'flex'),
-            concludeBattle: () => {
-                document.getElementById('modalResult').classList.replace('flex', 'hidden');
+            executeTurn: () => {
+                alert("Attack Successful!");
                 App.showScreen('menu');
             }
         };
