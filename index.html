@@ -3,63 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Barcode Battler - Hardened</title>
+    <title>Barcode Battler - Full Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        #reader { width: 100%; min-height: 300px; display: block; overflow: hidden; }
+        body { font-family: sans-serif; overscroll-behavior: none; }
         .screen { display: none; }
-        .active { display: flex !important; }
+        .screen.active { display: flex; flex-direction: column; }
+        #reader { width: 100%; height: 300px; display: block; }
+        .hero-container { height: 25vh; display: flex; justify-content: center; align-items: center; }
+        .hero-svg { max-height: 100%; max-width: 100%; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5)); }
+        .hit { filter: brightness(2) sepia(1); }
+        .damage-text { position: absolute; color: #ef4444; font-weight: bold; font-size: 2rem; pointer-events: none; z-index: 100; }
     </style>
 </head>
-<body class="bg-slate-900 text-white font-sans h-[100dvh] overflow-hidden">
-    <div id="app" class="h-full w-full flex flex-col relative">
-        <main id="screen-menu" class="screen active flex-1 items-center justify-center p-6">
-            <h1 class="text-2xl font-bold mb-6">Barcode Battler</h1>
-            <button onclick="app.prepScan('p1')" class="w-full bg-amber-600 py-6 rounded-xl font-bold">Start Scan</button>
+<body class="bg-slate-900 text-white overflow-hidden">
+    <div id="app" class="h-[100dvh] w-full flex flex-col relative">
+        <!-- Menu -->
+        <main id="screen-menu" class="screen active flex-1 items-center justify-center p-6 space-y-4">
+            <h1 class="text-3xl font-bold text-amber-500">Barcode Battler</h1>
+            <button onclick="app.prepScan('p1')" class="w-full bg-amber-600 p-6 rounded-xl font-bold">Scan P1 Hero</button>
+            <button id="btnP2" onclick="app.prepScan('p2')" disabled class="w-full bg-slate-700 p-6 rounded-xl font-bold opacity-50">Scan P2 (Local)</button>
         </main>
+
+        <!-- Scanner -->
         <main id="screen-scanner" class="screen flex-1 bg-black">
             <div id="reader"></div>
-            <button onclick="app.closeScanner()" class="bg-red-800 py-6 font-bold">Close Scanner</button>
+            <button onclick="app.closeScanner()" class="p-6 bg-red-800 font-bold">Cancel</button>
         </main>
+
+        <!-- Reveal -->
+        <main id="screen-reveal" class="screen flex-1 items-center justify-center p-6">
+            <div id="revealVisual" class="w-40 h-40 mb-4"></div>
+            <h2 id="revealName" class="text-xl font-bold mb-2"></h2>
+            <div id="revealStats" class="text-sm text-slate-400 mb-6 font-mono"></div>
+            <button onclick="app.finalizeHero()" class="w-full bg-green-600 p-6 rounded-xl font-bold">Confirm Hero</button>
+        </main>
+
+        <!-- Battle -->
+        <main id="screen-battle" class="screen flex-1 bg-slate-900">
+            <div class="flex-1 flex flex-col items-center justify-center">
+                <div id="enemyVisual" class="hero-container"></div>
+                <div id="diceDisplay" class="my-4 p-6 bg-white text-black font-bold text-3xl rounded-xl">0</div>
+                <div id="playerVisual" class="hero-container transform scale-x-[-1]"></div>
+            </div>
+            <button onclick="app.executeTurn()" class="w-full bg-green-600 p-8 font-bold text-xl">Toss Dice & Attack</button>
+        </main>
+
+        <div id="modalResult" class="absolute inset-0 bg-black/90 z-[100] hidden flex-col items-center justify-center p-6">
+            <h2 class="text-4xl font-bold mb-8 text-amber-500">Battle Complete</h2>
+            <button onclick="app.concludeBattle()" class="w-full bg-amber-600 p-8 rounded-xl font-bold">Return to Menu</button>
+        </div>
     </div>
 
     <script>
         const App = {
-            scanner: null,
+            scanner: null, ctx: 'p1', p1: null, p2: null,
+            init: () => { App.showScreen('menu'); },
             showScreen: (id) => {
                 document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
                 document.getElementById('screen-' + id).classList.add('active');
             },
-            prepScan: async (ctx) => {
+            prepScan: (ctx) => {
+                App.ctx = ctx;
                 App.showScreen('scanner');
                 if (!App.scanner) App.scanner = new Html5Qrcode("reader");
-                
-                try {
-                    await App.scanner.start(
-                        { facingMode: { exact: "environment" } },
-                        { fps: 15, qrbox: { width: 250, height: 150 } },
-                        (d) => { App.handleScan(d); },
-                        (err) => {}
-                    );
-                } catch(e) {
-                    // Fallback to basic mode if specific constraint fails
-                    App.scanner.start({ facingMode: "environment" }, { fps: 10 }, (d) => App.handleScan(d));
+                App.scanner.start({facingMode: "environment"}, {fps: 10, qrbox: 200}, (d) => App.handleScan(d));
+            },
+            handleScan: (code) => {
+                App.scanner.stop();
+                const hash = code.length;
+                const h = { 
+                    name: "Unit-" + code.substring(0,4), 
+                    hp: 50 + (hash % 50), 
+                    str: 5 + (hash % 10),
+                    svg: `<svg viewBox="0 0 100 100" class="hero-svg" fill="hsl(${hash*10}, 70%, 50%)"><rect x="20" y="20" width="60" height="60" rx="10"/></svg>` 
+                };
+                if (App.ctx === 'p1') App.p1 = h; else App.p2 = h;
+                document.getElementById('revealVisual').innerHTML = h.svg;
+                document.getElementById('revealName').innerText = h.name;
+                document.getElementById('revealStats').innerText = `HP: ${h.hp} | STR: ${h.str}`;
+                App.showScreen('reveal');
+            },
+            finalizeHero: () => {
+                if(App.ctx === 'p1') {
+                    document.getElementById('btnP2').disabled = false;
+                    document.getElementById('btnP2').style.opacity = '1';
+                    App.showScreen('menu');
+                } else {
+                    document.getElementById('enemyVisual').innerHTML = App.p2.svg;
+                    document.getElementById('playerVisual').innerHTML = App.p1.svg;
+                    App.showScreen('battle');
                 }
             },
-            handleScan: async (code) => {
-                await App.closeScanner();
-                alert("Result: " + code);
+            executeTurn: async () => {
+                document.getElementById('diceDisplay').innerText = Math.floor(Math.random()*6)+1;
+                document.getElementById('enemyVisual').classList.add('hit');
+                await new Promise(r => setTimeout(r, 300));
+                document.getElementById('enemyVisual').classList.remove('hit');
+                if(Math.random() > 0.7) document.getElementById('modalResult').classList.replace('hidden', 'flex');
             },
-            closeScanner: async () => {
-                if (App.scanner?.isScanning) {
-                    await App.scanner.stop();
-                    App.scanner.clear();
-                }
-                App.showScreen('menu');
-            }
+            closeScanner: () => { App.scanner.stop(); App.showScreen('menu'); },
+            concludeBattle: () => { document.getElementById('modalResult').classList.replace('flex', 'hidden'); App.showScreen('menu'); }
         };
         window.app = App;
+        window.onload = App.init;
     </script>
 </body>
 </html>
