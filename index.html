@@ -38,6 +38,10 @@
         .hero-svg { width: 100%; height: auto; max-height: 250px; filter: drop-shadow(0 10px 8px rgb(0 0 0 / 0.5)); transition: transform 0.2s; }
         .hero-container.attacking { transform: translateX(20px); }
         .hero-container.hit { filter: brightness(2) sepia(1) hue-rotate(-50deg) saturate(5); }
+        
+        /* Scanner Targeting Reticle */
+        #reader__scan_region { position: relative; }
+        #reader__scan_region img { display: none; } /* Hide default scan img if present */
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 h-screen w-screen overflow-hidden flex justify-center items-center">
@@ -56,7 +60,7 @@
             <div class="text-center mb-8">
                 <i class="fa-solid fa-qrcode text-6xl text-amber-500 mb-4"></i>
                 <h2 class="text-2xl font-bold">Scan & Fight</h2>
-                <p class="text-sm text-slate-400 mt-2">Generate unique heroes from real-world barcodes.</p>
+                <p class="text-sm text-slate-400 mt-2">Generate unique heroes from real-world barcodes & QR codes.</p>
             </div>
 
             <!-- Current Hero Display -->
@@ -102,7 +106,7 @@
             </div>
             
             <div class="p-4 bg-slate-900 shrink-0 border-t border-slate-800">
-                <p class="text-xs text-center text-slate-400 mb-3">Scan any Barcode or QR Code to generate a hero. Data is processed locally.</p>
+                <p class="text-xs text-center text-slate-400 mb-3">Align standard barcodes horizontally. Data is processed locally.</p>
                 <div class="flex gap-2">
                     <input type="text" id="manualCode" placeholder="Or enter manual mock code..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
                     <button onclick="app.handleScan(document.getElementById('manualCode').value)" class="bg-amber-600 px-4 py-2 rounded-lg hover:bg-amber-500 font-bold transition-colors">Simulate</button>
@@ -370,7 +374,6 @@
                     const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
                     
                     if(configStr === '{}') {
-                        // Crucial fix: Graceful degradation for local files
                         this.enabled = false;
                         document.getElementById('playerStatus').innerText = "Local Only";
                         document.getElementById('playerStatus').classList.replace('text-slate-400', 'text-amber-500');
@@ -519,18 +522,33 @@
             // --- SCANNER ---
             startScanner: () => {
                 if (!GameController.html5QrcodeScanner) {
+                    // Initialize the scanner engine
                     GameController.html5QrcodeScanner = new Html5Qrcode("reader");
                 }
-                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                
+                // Crucial Modification: Define a rectangular scan area suitable for 1D barcodes
+                // Explicitly declare supported formats to force the engine to look for EAN/UPC etc.
+                const config = { 
+                    fps: 10, 
+                    qrbox: { width: 300, height: 150 },
+                    formatsToSupport: [
+                        Html5QrcodeSupportedFormats.QR_CODE,
+                        Html5QrcodeSupportedFormats.EAN_13,
+                        Html5QrcodeSupportedFormats.EAN_8,
+                        Html5QrcodeSupportedFormats.UPC_A,
+                        Html5QrcodeSupportedFormats.UPC_E,
+                        Html5QrcodeSupportedFormats.CODE_128,
+                        Html5QrcodeSupportedFormats.CODE_39
+                    ]
+                };
                 
                 GameController.html5QrcodeScanner.start(
                     { facingMode: "environment" }, 
                     config, 
                     (decodedText) => GameController.handleScan(decodedText),
-                    (error) => {} 
+                    (error) => { /* Ignored to prevent console spam during scanning */ } 
                 ).catch(err => {
-                    // Crucial fix: Display error to user when camera access is denied by browser policy
-                    console.warn("Camera access denied or unavailable. Likely insecure context (file://).", err);
+                    console.warn("Camera access denied or unavailable. Likely insecure context.", err);
                     document.getElementById('scannerError').classList.remove('hidden');
                 });
             },
@@ -565,7 +583,6 @@
                 
                 document.getElementById('btnVsCpu').disabled = false;
                 
-                // Only enable multiplayer if the network backend successfully initialised
                 if(GameController.network.enabled) {
                     document.getElementById('btnVsPlayer').disabled = false;
                 }
