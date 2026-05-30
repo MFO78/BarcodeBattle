@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Barcode Battler</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- HTML5 QR Code Scanner -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- FontAwesome for UI Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; overscroll-behavior: none; }
+        .screen { display: none; }
+        .screen.active { display: flex; flex-direction: column; }
+        
+        /* Dice Animation */
+        @keyframes roll {
+            0% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.2); }
+            100% { transform: rotate(360deg) scale(1); }
+        }
+        .rolling { animation: roll 0.5s ease-in-out; }
+        
+        /* Damage Floating Text Animation */
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-50px) scale(1.5); }
+        }
+        .damage-text { position: absolute; color: #ef4444; font-weight: bold; font-size: 2rem; animation: floatUp 1s forwards; pointer-events: none; z-index: 50; }
+
+        /* SVG Hero Styles */
+        .hero-svg { width: 100%; height: auto; max-height: 250px; filter: drop-shadow(0 10px 8px rgb(0 0 0 / 0.5)); transition: transform 0.2s; }
+        .hero-container.attacking { transform: translateX(20px); }
+        .hero-container.hit { filter: brightness(2) sepia(1) hue-rotate(-50deg) saturate(5); }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-screen w-screen overflow-hidden flex justify-center items-center">
+
+    <!-- App Container -->
+    <div id="app" class="w-full max-w-md h-full bg-slate-800 shadow-2xl relative flex flex-col">
+        
+        <!-- Header -->
+        <header class="bg-slate-950 p-4 flex justify-between items-center border-b border-slate-700 shrink-0">
+            <h1 class="text-xl font-bold text-amber-400"><i class="fa-solid fa-barcode mr-2"></i>Code Battler</h1>
+            <span id="playerStatus" class="text-xs font-mono text-slate-400">Offline</span>
+        </header>
+
+        <!-- SCREEN: Main Menu -->
+        <main id="screen-menu" class="screen active flex-1 p-6 justify-center items-center space-y-6">
+            <div class="text-center mb-8">
+                <i class="fa-solid fa-qrcode text-6xl text-amber-500 mb-4"></i>
+                <h2 class="text-2xl font-bold">Scan & Fight</h2>
+                <p class="text-sm text-slate-400 mt-2">Generate unique heroes from real-world barcodes.</p>
+            </div>
+
+            <!-- Current Hero Display -->
+            <div id="currentHeroPreview" class="hidden w-full bg-slate-700 rounded-xl p-4 flex flex-col items-center border border-slate-600 shadow-inner">
+                <h3 class="text-sm text-slate-300 mb-2">Current Hero</h3>
+                <div id="menuHeroVisual" class="w-32 h-32 mb-2"></div>
+                <div class="flex gap-4 text-xs font-mono text-amber-300">
+                    <span id="menuHeroHP"><i class="fa-solid fa-heart text-red-500"></i> --</span>
+                    <span id="menuHeroSTR"><i class="fa-solid fa-hand-fist text-orange-500"></i> --</span>
+                </div>
+            </div>
+
+            <button onclick="app.showScreen('scanner')" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                <i class="fa-solid fa-camera"></i> Scan New Code
+            </button>
+            
+            <div class="grid grid-cols-2 gap-4 w-full">
+                <button onclick="app.startMatchmaking('cpu')" id="btnVsCpu" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fa-solid fa-robot mb-1 block text-xl"></i> Vs CPU
+                </button>
+                <button onclick="app.showScreen('multiplayer')" id="btnVsPlayer" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fa-solid fa-users mb-1 block text-xl"></i> Multiplayer
+                </button>
+            </div>
+        </main>
+
+        <!-- SCREEN: Scanner -->
+        <main id="screen-scanner" class="screen flex-1 flex-col bg-black">
+            <div class="p-4 bg-slate-900 flex justify-between items-center shrink-0">
+                <h2 class="font-bold">Scan Code</h2>
+                <button onclick="app.stopScanner()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
+            </div>
+            <div class="flex-1 relative flex items-center justify-center overflow-hidden">
+                <div id="reader" class="w-full h-full max-h-[500px]"></div>
+            </div>
+            <div class="p-4 bg-slate-900 shrink-0">
+                <p class="text-xs text-center text-slate-400 mb-3">Scan any Barcode or QR Code to generate a hero.</p>
+                <div class="flex gap-2">
+                    <input type="text" id="manualCode" placeholder="Or enter mock code..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
+                    <button onclick="app.handleScan(document.getElementById('manualCode').value)" class="bg-slate-700 px-4 py-2 rounded-lg hover:bg-slate-600">Simulate</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- SCREEN: Hero Reveal -->
+        <main id="screen-reveal" class="screen flex-1 p-6 justify-center items-center">
+            <h2 class="text-2xl font-bold text-amber-400 mb-6 text-center" id="revealTitle">Hero Discovered!</h2>
+            
+            <div class="bg-slate-800 border-2 border-slate-700 rounded-2xl p-6 w-full max-w-sm flex flex-col items-center shadow-2xl relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-b from-transparent to-slate-900/80 pointer-events-none"></div>
+                <div id="revealVisual" class="w-48 h-48 mb-6 relative z-10"></div>
+                
+                <h3 id="revealName" class="text-xl font-bold mb-4 z-10 font-mono tracking-wider"></h3>
+                
+                <div class="grid grid-cols-2 gap-4 w-full z-10 font-mono text-sm">
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">HP (Stamina)</span>
+                        <span id="revealHP" class="text-green-400 font-bold"></span>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">STR (Strength)</span>
+                        <span id="revealSTR" class="text-orange-400 font-bold"></span>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">DEF (Defence)</span>
+                        <span id="revealDEF" class="text-blue-400 font-bold"></span>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">SPD (Speed)</span>
+                        <span id="revealSPD" class="text-yellow-400 font-bold"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-4 w-full mt-8">
+                <button onclick="app.keepHero()" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform">
+                    Keep & Return
+                </button>
+                <button onclick="app.showScreen('scanner')" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform">
+                    Discard
+                </button>
+            </div>
+        </main>
+
+        <!-- SCREEN: Multiplayer Lobby -->
+        <main id="screen-multiplayer" class="screen flex-1 p-6 flex-col">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-2xl font-bold">Multiplayer Sync</h2>
+                <button onclick="app.showScreen('menu')" class="text-slate-400"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            </div>
+
+            <div class="space-y-6 flex-1 flex flex-col justify-center">
+                <!-- Host Game -->
+                <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center">
+                    <h3 class="font-bold text-lg mb-2">Host a Battle</h3>
+                    <p class="text-sm text-slate-400 mb-4">Create a lobby and share the code.</p>
+                    <button onclick="app.hostGame()" class="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-lg font-bold transition-colors">
+                        Generate Code
+                    </button>
+                    <div id="lobbyCodeDisplay" class="hidden mt-4 bg-slate-900 border border-indigo-500 p-4 rounded-lg">
+                        <p class="text-xs text-indigo-300 mb-1">Lobby Code</p>
+                        <p id="theLobbyCode" class="text-3xl font-mono font-bold tracking-widest text-white">----</p>
+                        <p class="text-xs text-slate-400 mt-2"><i class="fa-solid fa-spinner fa-spin"></i> Waiting for opponent...</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-center opacity-50">
+                    <div class="h-px bg-slate-600 flex-1"></div>
+                    <span class="px-4 text-xs font-bold uppercase">OR</span>
+                    <div class="h-px bg-slate-600 flex-1"></div>
+                </div>
+
+                <!-- Join Game -->
+                <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 text-center">
+                    <h3 class="font-bold text-lg mb-2">Join a Battle</h3>
+                    <p class="text-sm text-slate-400 mb-4">Enter an opponent's lobby code.</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="joinCodeInput" maxlength="4" placeholder="1234" class="w-full text-center text-2xl font-mono bg-slate-900 border border-slate-700 rounded-lg py-2 focus:border-indigo-500 focus:outline-none uppercase">
+                        <button onclick="app.joinGame()" class="bg-amber-600 hover:bg-amber-500 px-6 font-bold rounded-lg transition-colors">Join</button>
+                    </div>
+                    <p id="joinError" class="text-red-400 text-xs mt-2 hidden"></p>
+                </div>
+            </div>
+        </main>
+
+        <!-- SCREEN: Battle -->
+        <main id="screen-battle" class="screen flex-1 flex-col relative bg-slate-900 overflow-hidden">
+            <!-- Top HUD: Opponent -->
+            <div class="bg-slate-950 p-3 flex justify-between items-center border-b border-red-900/50 shrink-0 z-20">
+                <div class="flex flex-col">
+                    <span id="enemyName" class="text-xs font-mono text-red-400">Enemy</span>
+                    <span class="text-sm font-bold" id="enemyHpText">0 / 0 HP</span>
+                </div>
+                <div class="w-1/2 bg-slate-800 h-4 rounded-full overflow-hidden border border-slate-700">
+                    <div id="enemyHpBar" class="bg-red-500 h-full w-full transition-all duration-300"></div>
+                </div>
+            </div>
+
+            <!-- Battle Arena -->
+            <div class="flex-1 relative flex flex-col justify-between p-4 z-10" id="battleArena">
+                
+                <!-- Enemy Sprite -->
+                <div class="flex justify-center items-start h-1/2">
+                    <div id="enemyVisual" class="w-32 h-32 hero-container transform transition-transform"></div>
+                </div>
+                
+                <!-- Center: Dice and Status -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="flex flex-col items-center bg-slate-900/80 p-4 rounded-2xl border border-slate-700 backdrop-blur-sm shadow-2xl">
+                        <span id="turnIndicator" class="text-sm font-bold text-amber-400 mb-2 uppercase tracking-widest">Your Turn</span>
+                        <div id="diceDisplay" class="w-16 h-16 bg-white rounded-xl shadow-inner flex items-center justify-center text-3xl font-bold text-slate-900 border-4 border-slate-300">
+                            <i class="fa-solid fa-dice-d6"></i>
+                        </div>
+                        <span id="actionText" class="text-xs text-slate-300 mt-2 h-4"></span>
+                    </div>
+                </div>
+
+                <!-- Player Sprite -->
+                <div class="flex justify-center items-end h-1/2">
+                    <div id="playerVisual" class="w-40 h-40 hero-container transform transition-transform scale-x-[-1]"></div>
+                </div>
+            </div>
+
+            <!-- Bottom HUD: Player -->
+            <div class="bg-slate-950 p-4 border-t border-slate-800 shrink-0 z-20">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="w-1/2 bg-slate-800 h-4 rounded-full overflow-hidden border border-slate-700">
+                        <div id="playerHpBar" class="bg-green-500 h-full w-full transition-all duration-300"></div>
+                    </div>
+                    <div class="flex flex-col text-right">
+                        <span class="text-xs font-mono text-green-400">You</span>
+                        <span class="text-sm font-bold" id="playerHpText">0 / 0 HP</span>
+                    </div>
+                </div>
+                <button id="btnRollDice" onclick="app.rollDice()" class="w-full bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex justify-center items-center gap-2">
+                    <i class="fa-solid fa-dice"></i> Toss Dice & Attack
+                </button>
+            </div>
+        </main>
+
+        <!-- Modal: Battle Result -->
+        <div id="modalResult" class="absolute inset-0 bg-black/90 z-50 hidden flex-col items-center justify-center p-6 backdrop-blur-sm">
+            <h2 id="resultTitle" class="text-5xl font-bold mb-2 uppercase italic tracking-tighter">Victory!</h2>
+            <p id="resultDesc" class="text-slate-300 mb-8 text-center"></p>
+            
+            <div class="flex flex-col w-full gap-3 max-w-xs">
+                <button id="btnKeepHero" onclick="app.showScreen('menu')" class="w-full bg-green-600 py-3 rounded-xl font-bold">Keep Hero & Return</button>
+                <button id="btnDiscardHero" onclick="app.discardAndScan()" class="w-full bg-slate-700 py-3 rounded-xl font-bold">Discard & Scan New</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDKs (v11) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. UTILITIES & GENERATION
+        // ==========================================
+        const Utils = {
+            // Simple string to pseudo-random hash array (8 bytes)
+            hashString: (str) => {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash |= 0; 
+                }
+                const seed = Math.abs(hash);
+                // Extract 8 specific pseudo-random chunks (0-255)
+                return [
+                    (seed >> 24) & 255, (seed >> 16) & 255, (seed >> 8) & 255, seed & 255,
+                    (seed * 13 >> 16) & 255, (seed * 17 >> 8) & 255, (seed * 23) & 255, (seed * 31 >> 4) & 255
+                ];
+            },
+            rollDie: () => Math.floor(Math.random() * 6) + 1,
+            sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+            generateCode: () => Math.floor(1000 + Math.random() * 9000).toString()
+        };
+
+        const SvgGenerator = {
+            // Modular SVG parts
+            heads: [
+                // 0: Blocky Helmet
+                `<rect x="35" y="10" width="30" height="30" rx="4" fill="currentColor"/><path d="M40 25 h20 M50 25 v15" stroke="#1e293b" stroke-width="2"/>`,
+                // 1: Spiked
+                `<polygon points="50,5 30,35 70,35" fill="currentColor"/><circle cx="50" cy="25" r="5" fill="#1e293b"/>`,
+                // 2: Round Visor
+                `<circle cx="50" cy="25" r="18" fill="currentColor"/><rect x="40" y="20" width="20" height="8" rx="4" fill="#1e293b"/>`
+            ],
+            bodies: [
+                // 0: Heavy Armour
+                `<rect x="25" y="40" width="50" height="40" rx="8" fill="currentColor"/><path d="M25 50 h50 M25 70 h50" stroke="#1e293b" stroke-width="2"/>`,
+                // 1: Agile
+                `<polygon points="50,40 20,80 80,80" fill="currentColor"/><circle cx="50" cy="60" r="10" fill="#1e293b"/>`,
+                // 2: Tech Core
+                `<rect x="35" y="40" width="30" height="50" rx="15" fill="currentColor"/><rect x="45" y="55" width="10" height="20" fill="#38bdf8"/>`
+            ],
+            weapons: [
+                // 0: Sword
+                `<rect x="80" y="30" width="6" height="50" fill="#94a3b8"/><rect x="75" y="60" width="16" height="6" fill="currentColor"/>`,
+                // 1: Axe
+                `<rect x="80" y="30" width="6" height="60" fill="#78350f"/><path d="M86 40 Q 100 40 100 55 Q 100 70 86 70 Z" fill="currentColor"/>`,
+                // 2: Staff
+                `<rect x="80" y="20" width="4" height="70" fill="#78350f"/><circle cx="82" cy="20" r="8" fill="currentColor"/>`
+            ],
+            arms: `<rect x="15" y="45" width="10" height="25" rx="5" fill="currentColor"/><rect x="75" y="45" width="10" height="25" rx="5" fill="currentColor"/>`,
+            legs: `<rect x="35" y="80" width="10" height="15" fill="currentColor"/><rect x="55" y="80" width="10" height="15" fill="currentColor"/>`,
+            
+            build: (hashArray) => {
+                // hashArray is [0-255] * 8
+                const head = SvgGenerator.heads[hashArray[4] % 3];
+                const body = SvgGenerator.bodies[hashArray[5] % 3];
+                const weapon = SvgGenerator.weapons[hashArray[6] % 3];
+                const hue = hashArray[7];
+                
+                return `
+                <svg viewBox="0 0 110 100" xmlns="http://www.w3.org/2000/svg" class="hero-svg w-full h-full" style="color: hsl(${hue}, 70%, 50%);">
+                    ${SvgGenerator.arms}
+                    ${SvgGenerator.legs}
+                    ${body}
+                    ${head}
+                    ${weapon}
+                </svg>`;
+            }
+        };
+
+        class Hero {
+            constructor(code) {
+                this.code = code;
+                const hash = Utils.hashString(code);
+                
+                // Statistics Generation based on hash chunks
+                // HP: 50-150
+                this.maxHp = 50 + Math.floor((hash[0] / 255) * 100);
+                this.hp = this.maxHp;
+                // STR: 5-20
+                this.str = 5 + Math.floor((hash[1] / 255) * 15);
+                // DEF: 1-10
+                this.def = 1 + Math.floor((hash[2] / 255) * 9);
+                // SPD: 1-20 (Determines who goes first in vs mode)
+                this.spd = 1 + Math.floor((hash[3] / 255) * 19);
+                
+                this.svg = SvgGenerator.build(hash);
+                
+                // Extract a 4 char prefix for the name
+                this.name = "Unit-" + code.toString().substring(0, 4).toUpperCase();
+            }
+
+            // Convert to plain object for Firebase
+            toObject() {
+                return { code: this.code, maxHp: this.maxHp, hp: this.hp, str: this.str, def: this.def, spd: this.spd, svg: this.svg, name: this.name };
+            }
+            
+            // Reconstruct from plain object
+            static fromObject(obj) {
+                let h = new Hero("mock"); // dummy init
+                Object.assign(h, obj);
+                return h;
+            }
+        }
+
+        // ==========================================
+        // 2. FIREBASE MULTIPLAYER MANAGER
+        // ==========================================
+        class Multiplayer {
+            constructor() {
+                this.app = null;
+                this.db = null;
+                this.auth = null;
+                this.user = null;
+                this.lobbyId = null;
+                this.unsubscribe = null;
+                this.appId = typeof __app_id !== 'undefined' ? __app_id : 'barcode-battler';
+                this.role = null; // 'host' or 'guest'
+                this.initialised = false;
+            }
+
+            async init() {
+                if (this.initialised) return;
+                try {
+                    const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+                    if(configStr === '{}') {
+                        console.warn("No Firebase config found. Multiplayer disabled.");
+                        return false;
+                    }
+                    const firebaseConfig = JSON.parse(configStr);
+                    this.app = initializeApp(firebaseConfig);
+                    this.auth = getAuth(this.app);
+                    this.db = getFirestore(this.app);
+
+                    // Authenticaton (Rule 3)
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(this.auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(this.auth);
+                    }
+                    
+                    this.user = this.auth.currentUser;
+                    document.getElementById('playerStatus').innerText = "Online";
+                    document.getElementById('playerStatus').classList.replace('text-slate-400', 'text-green-400');
+                    this.initialised = true;
+                    return true;
+                } catch (e) {
+                    console.error("Firebase init failed:", e);
+                    document.getElementById('playerStatus').innerText = "Offline";
+                    return false;
+                }
+            }
+
+            getLobbyRef(id) {
+                // Rule 1: Strict Paths
+                return doc(this.db, 'artifacts', this.appId, 'public', 'data', 'lobbies', id);
+            }
+
+            async hostGame(hero) {
+                if (!this.user) return false;
+                this.role = 'host';
+                this.lobbyId = Utils.generateCode();
+                
+                const lobbyRef = this.getLobbyRef(this.lobbyId);
+                await setDoc(lobbyRef, {
+                    state: 'waiting',
+                    host: hero.toObject(),
+                    guest: null,
+                    turn: 'none',
+                    actionQueue: null, // format: { player: 'host', roll: 4, dmg: 10 }
+                    timestamp: new Date().getTime()
+                });
+
+                this.listenToLobby();
+                return this.lobbyId;
+            }
+
+            async joinGame(id, hero) {
+                if (!this.user) return false;
+                this.role = 'guest';
+                this.lobbyId = id.toUpperCase();
+                const lobbyRef = this.getLobbyRef(this.lobbyId);
+                
+                const docSnap = await getDoc(lobbyRef);
+                if (docSnap.exists() && docSnap.data().state === 'waiting') {
+                    const hostSpd = docSnap.data().host.spd;
+                    // Determine first turn
+                    const firstTurn = hostSpd >= hero.spd ? 'host' : 'guest';
+
+                    await updateDoc(lobbyRef, {
+                        state: 'playing',
+                        guest: hero.toObject(),
+                        turn: firstTurn
+                    });
+                    this.listenToLobby();
+                    return true;
+                }
+                return false; // Lobby full or not found
+            }
+
+            listenToLobby() {
+                if (this.unsubscribe) this.unsubscribe();
+                
+                const lobbyRef = this.getLobbyRef(this.lobbyId);
+                this.unsubscribe = onSnapshot(lobbyRef, (doc) => {
+                    if (doc.exists()) {
+                        window.GameController.onNetworkSync(doc.data());
+                    }
+                }, (error) => {
+                    console.error("Sync error:", error);
+                });
+            }
+
+            async sendAction(roll, dmg) {
+                if(!this.lobbyId) return;
+                const lobbyRef = this.getLobbyRef(this.lobbyId);
+                const nextTurn = this.role === 'host' ? 'guest' : 'host';
+                await updateDoc(lobbyRef, {
+                    actionQueue: { player: this.role, roll: roll, dmg: dmg, time: Date.now() },
+                    turn: nextTurn
+                });
+            }
+
+            async endGame(winnerRole) {
+                if(!this.lobbyId) return;
+                const lobbyRef = this.getLobbyRef(this.lobbyId);
+                await updateDoc(lobbyRef, { state: 'finished', winner: winnerRole });
+                if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
+            }
+
+            cleanup() {
+                if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
+                this.lobbyId = null;
+                this.role = null;
+            }
+        }
+
+        // ==========================================
+        // 3. GAME CONTROLLER (UI & LOGIC)
+        // ==========================================
+        const GameController = {
+            playerHero: null,
+            enemyHero: null,
+            html5QrcodeScanner: null,
+            mode: 'menu', // menu, scanner, reveal, multiplayer, battle
+            battleMode: 'cpu', // cpu, pvp
+            network: new Multiplayer(),
+            lastProcessedActionTime: 0,
+
+            init: async () => {
+                GameController.showScreen('menu');
+                await GameController.network.init();
+            },
+
+            showScreen: (id) => {
+                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+                document.getElementById('screen-' + id).classList.add('active');
+                GameController.mode = id;
+
+                // Stop scanner if leaving
+                if (id !== 'scanner' && GameController.html5QrcodeScanner) {
+                    GameController.stopScanner();
+                }
+
+                // Initialise scanner if entering
+                if (id === 'scanner') {
+                    GameController.startScanner();
+                }
+            },
+
+            // --- SCANNER ---
+            startScanner: () => {
+                if (!GameController.html5QrcodeScanner) {
+                    GameController.html5QrcodeScanner = new Html5Qrcode("reader");
+                }
+                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                
+                GameController.html5QrcodeScanner.start(
+                    { facingMode: "environment" }, 
+                    config, 
+                    (decodedText) => GameController.handleScan(decodedText),
+                    (error) => {} // ignore stream errors
+                ).catch(err => {
+                    console.log("Camera access error. Show manual input fallback.", err);
+                    // Fallback is already in UI
+                });
+            },
+
+            stopScanner: () => {
+                if (GameController.html5QrcodeScanner && GameController.html5QrcodeScanner.isScanning) {
+                    GameController.html5QrcodeScanner.stop().catch(console.error);
+                }
+                if (GameController.mode === 'scanner') GameController.showScreen('menu');
+            },
+
+            handleScan: (code) => {
+                if(!code) return;
+                GameController.stopScanner();
+                
+                const h = new Hero(code);
+                
+                // Update Reveal UI
+                document.getElementById('revealTitle').innerText = "Hero Discovered!";
+                document.getElementById('revealVisual').innerHTML = h.svg;
+                document.getElementById('revealName').innerText = h.name;
+                document.getElementById('revealHP').innerText = h.hp;
+                document.getElementById('revealSTR').innerText = h.str;
+                document.getElementById('revealDEF').innerText = h.def;
+                document.getElementById('revealSPD').innerText = h.spd;
+                
+                GameController.playerHero = h;
+                GameController.showScreen('reveal');
+            },
+
+            keepHero: () => {
+                if(!GameController.playerHero) return;
+                
+                // Enable battle buttons
+                document.getElementById('btnVsCpu').disabled = false;
+                document.getElementById('btnVsPlayer').disabled = false;
+                
+                // Update Menu Preview
+                document.getElementById('currentHeroPreview').classList.remove('hidden');
+                document.getElementById('menuHeroVisual').innerHTML = GameController.playerHero.svg;
+                document.getElementById('menuHeroHP').innerHTML = `<i class="fa-solid fa-heart text-red-500"></i> ${GameController.playerHero.hp}`;
+                document.getElementById('menuHeroSTR').innerHTML = `<i class="fa-solid fa-hand-fist text-orange-500"></i> ${GameController.playerHero.str}`;
+                
+                GameController.showScreen('menu');
+            },
+
+            discardAndScan: () => {
+                GameController.playerHero = null;
+                document.getElementById('currentHeroPreview').classList.add('hidden');
+                document.getElementById('btnVsCpu').disabled = true;
+                document.getElementById('btnVsPlayer').disabled = true;
+                document.getElementById('modalResult').classList.replace('flex', 'hidden');
+                GameController.showScreen('scanner');
+            },
+
+            // --- MULTIPLAYER LOBBY ---
+            hostGame: async () => {
+                if(!GameController.playerHero) return;
+                const btn = document.querySelector('#screen-multiplayer button');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+                
+                const code = await GameController.network.hostGame(GameController.playerHero);
+                if(code) {
+                    document.getElementById('lobbyCodeDisplay').classList.remove('hidden');
+                    document.getElementById('theLobbyCode').innerText = code;
+                    btn.classList.add('hidden');
+                }
+            },
+
+            joinGame: async () => {
+                const code = document.getElementById('joinCodeInput').value;
+                const errEl = document.getElementById('joinError');
+                if(!code || code.length !== 4) {
+                    errEl.innerText = "Enter a 4-digit code.";
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                
+                const btn = document.querySelector('#screen-multiplayer button:last-child');
+                btn.disabled = true;
+                
+                const success = await GameController.network.joinGame(code, GameController.playerHero);
+                if(!success) {
+                    errEl.innerText = "Lobby not found or full.";
+                    errEl.classList.remove('hidden');
+                    btn.disabled = false;
+                }
+            },
+
+            onNetworkSync: async (state) => {
+                if (state.state === 'playing' && GameController.mode === 'multiplayer') {
+                    // Transition to battle
+                    GameController.battleMode = 'pvp';
+                    
+                    // Assign opponent
+                    if (GameController.network.role === 'host') {
+                        GameController.enemyHero = Hero.fromObject(state.guest);
+                    } else {
+                        GameController.enemyHero = Hero.fromObject(state.host);
+                    }
+                    
+                    GameController.initBattleUI();
+                    GameController.showScreen('battle');
+                    GameController.updatePvpTurnState(state.turn);
+                }
+                
+                if (state.state === 'playing' && GameController.mode === 'battle') {
+                    GameController.updatePvpTurnState(state.turn);
+                    
+                    // Process action if exists and new
+                    if (state.actionQueue && state.actionQueue.time > GameController.lastProcessedActionTime) {
+                        GameController.lastProcessedActionTime = state.actionQueue.time;
+                        
+                        // If it's the opponent's action, play the animation locally
+                        if (state.actionQueue.player !== GameController.network.role) {
+                            await GameController.processEnemyAction(state.actionQueue.roll, state.actionQueue.dmg);
+                        }
+                    }
+
+                    // Check win states
+                    if (GameController.playerHero.hp <= 0) GameController.endBattle(false);
+                    else if (GameController.enemyHero.hp <= 0) GameController.endBattle(true);
+                }
+
+                if (state.state === 'finished' && GameController.mode === 'battle') {
+                     // Failsafe if network beat local calculation
+                     if (state.winner === GameController.network.role) GameController.endBattle(true);
+                     else GameController.endBattle(false);
+                }
+            },
+
+            updatePvpTurnState: (currentTurn) => {
+                const isMyTurn = currentTurn === GameController.network.role;
+                document.getElementById('btnRollDice').disabled = !isMyTurn;
+                document.getElementById('turnIndicator').innerText = isMyTurn ? "Your Turn" : "Enemy Turn";
+                document.getElementById('turnIndicator').className = isMyTurn ? "text-sm font-bold text-amber-400 mb-2 uppercase tracking-widest" : "text-sm font-bold text-slate-400 mb-2 uppercase tracking-widest";
+            },
+
+            // --- BATTLE ENGINE ---
+            startMatchmaking: (type) => {
+                if(type === 'cpu') {
+                    GameController.battleMode = 'cpu';
+                    // Generate random CPU
+                    GameController.enemyHero = new Hero("CPU-" + Utils.generateCode() + Utils.generateCode());
+                    // Level scaling (roughly similar HP)
+                    GameController.enemyHero.maxHp = GameController.playerHero.maxHp + (Math.floor(Math.random()*40)-20);
+                    if(GameController.enemyHero.maxHp < 10) GameController.enemyHero.maxHp = 10;
+                    GameController.enemyHero.hp = GameController.enemyHero.maxHp;
+                    
+                    GameController.initBattleUI();
+                    GameController.showScreen('battle');
+                    
+                    // CPU speed check
+                    if (GameController.enemyHero.spd > GameController.playerHero.spd) {
+                        GameController.cpuTurn();
+                    } else {
+                        document.getElementById('btnRollDice').disabled = false;
+                        document.getElementById('turnIndicator').innerText = "Your Turn";
+                    }
+                }
+            },
+
+            initBattleUI: () => {
+                document.getElementById('playerVisual').innerHTML = GameController.playerHero.svg;
+                document.getElementById('enemyVisual').innerHTML = GameController.enemyHero.svg;
+                
+                document.getElementById('enemyName').innerText = GameController.enemyHero.name;
+                
+                GameController.updateHpBars();
+                
+                document.getElementById('actionText').innerText = "";
+                document.getElementById('diceDisplay').innerHTML = `<i class="fa-solid fa-dice-d6"></i>`;
+                document.getElementById('modalResult').classList.replace('flex', 'hidden');
+            },
+
+            updateHpBars: () => {
+                const p = GameController.playerHero;
+                const e = GameController.enemyHero;
+                
+                document.getElementById('playerHpText').innerText = `${p.hp > 0 ? p.hp : 0} / ${p.maxHp} HP`;
+                document.getElementById('enemyHpText').innerText = `${e.hp > 0 ? e.hp : 0} / ${e.maxHp} HP`;
+                
+                document.getElementById('playerHpBar').style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
+                document.getElementById('enemyHpBar').style.width = `${Math.max(0, (e.hp / e.maxHp) * 100)}%`;
+            },
+
+            showDamageText: (targetId, dmg) => {
+                const target = document.getElementById(targetId);
+                const dmgEl = document.createElement('div');
+                dmgEl.className = 'damage-text';
+                dmgEl.innerText = `-${dmg}`;
+                target.appendChild(dmgEl);
+                setTimeout(() => dmgEl.remove(), 1000);
+                
+                // Hit effect
+                target.querySelector('svg').classList.add('hit');
+                setTimeout(() => target.querySelector('svg').classList.remove('hit'), 200);
+            },
+
+            animateAttack: async (attackerId) => {
+                const el = document.getElementById(attackerId);
+                el.classList.add('attacking');
+                await Utils.sleep(200);
+                el.classList.remove('attacking');
+                await Utils.sleep(100);
+            },
+
+            rollDice: async () => {
+                document.getElementById('btnRollDice').disabled = true;
+                
+                // UI Anim
+                const diceEl = document.getElementById('diceDisplay');
+                diceEl.classList.add('rolling');
+                document.getElementById('actionText').innerText = "Rolling...";
+                
+                await Utils.sleep(500); // Wait for animation half
+                
+                const roll = Utils.rollDie();
+                diceEl.classList.remove('rolling');
+                diceEl.innerHTML = roll;
+                
+                const dmg = Math.max(1, (GameController.playerHero.str * roll) - GameController.enemyHero.def);
+                document.getElementById('actionText').innerText = `Rolled ${roll}! Dealing ${dmg} DMG.`;
+                
+                await GameController.animateAttack('playerVisual');
+                GameController.showDamageText('enemyVisual', dmg);
+                
+                GameController.enemyHero.hp -= dmg;
+                GameController.updateHpBars();
+                
+                await Utils.sleep(1000);
+
+                if (GameController.battleMode === 'cpu') {
+                    if (GameController.enemyHero.hp <= 0) {
+                        GameController.endBattle(true);
+                    } else {
+                        GameController.cpuTurn();
+                    }
+                } else if (GameController.battleMode === 'pvp') {
+                    // Send to network, update UI locally
+                    await GameController.network.sendAction(roll, dmg);
+                    // Local state update handled by onSnapshot listener if alive
+                }
+            },
+
+            cpuTurn: async () => {
+                document.getElementById('btnRollDice').disabled = true;
+                document.getElementById('turnIndicator').innerText = "Enemy Turn";
+                document.getElementById('turnIndicator').className = "text-sm font-bold text-slate-400 mb-2 uppercase tracking-widest";
+                
+                await Utils.sleep(1000);
+                
+                const diceEl = document.getElementById('diceDisplay');
+                diceEl.classList.add('rolling');
+                document.getElementById('actionText').innerText = "Enemy Rolling...";
+                
+                await Utils.sleep(500);
+                const roll = Utils.rollDie();
+                diceEl.classList.remove('rolling');
+                diceEl.innerHTML = roll;
+                
+                const dmg = Math.max(1, (GameController.enemyHero.str * roll) - GameController.playerHero.def);
+                document.getElementById('actionText').innerText = `Enemy rolled ${roll}! Took ${dmg} DMG.`;
+                
+                await GameController.animateAttack('enemyVisual');
+                GameController.showDamageText('playerVisual', dmg);
+                
+                GameController.playerHero.hp -= dmg;
+                GameController.updateHpBars();
+                
+                await Utils.sleep(1000);
+                
+                if (GameController.playerHero.hp <= 0) {
+                    GameController.endBattle(false);
+                } else {
+                    document.getElementById('btnRollDice').disabled = false;
+                    document.getElementById('turnIndicator').innerText = "Your Turn";
+                    document.getElementById('turnIndicator').className = "text-sm font-bold text-amber-400 mb-2 uppercase tracking-widest";
+                }
+            },
+
+            processEnemyAction: async (roll, dmg) => {
+                const diceEl = document.getElementById('diceDisplay');
+                diceEl.classList.add('rolling');
+                document.getElementById('actionText').innerText = "Enemy Rolling...";
+                
+                await Utils.sleep(500);
+                diceEl.classList.remove('rolling');
+                diceEl.innerHTML = roll;
+                
+                document.getElementById('actionText').innerText = `Enemy rolled ${roll}! Took ${dmg} DMG.`;
+                
+                await GameController.animateAttack('enemyVisual');
+                GameController.showDamageText('playerVisual', dmg);
+                
+                GameController.playerHero.hp -= dmg;
+                GameController.updateHpBars();
+                
+                await Utils.sleep(500);
+            },
+
+            endBattle: (playerWon) => {
+                if (GameController.battleMode === 'pvp' && playerWon) {
+                    GameController.network.endGame(GameController.network.role);
+                    GameController.network.cleanup();
+                }
+
+                const modal = document.getElementById('modalResult');
+                const title = document.getElementById('resultTitle');
+                const desc = document.getElementById('resultDesc');
+                
+                modal.classList.replace('hidden', 'flex');
+                
+                if(playerWon) {
+                    title.innerText = "VICTORY!";
+                    title.className = "text-5xl font-bold mb-2 uppercase italic tracking-tighter text-yellow-400";
+                    desc.innerText = "Your hero survives to fight another day.";
+                    document.getElementById('btnKeepHero').classList.remove('hidden');
+                } else {
+                    title.innerText = "DEFEATED";
+                    title.className = "text-5xl font-bold mb-2 uppercase italic tracking-tighter text-red-500";
+                    desc.innerText = "Your hero has been destroyed.";
+                    document.getElementById('btnKeepHero').classList.add('hidden');
+                    // Permadeath: clear current hero preview on menu
+                    GameController.playerHero = null;
+                    document.getElementById('currentHeroPreview').classList.add('hidden');
+                    document.getElementById('btnVsCpu').disabled = true;
+                    document.getElementById('btnVsPlayer').disabled = true;
+                }
+                
+                // Heal hero if won
+                if(playerWon && GameController.playerHero) {
+                    GameController.playerHero.hp = GameController.playerHero.maxHp;
+                }
+            }
+        };
+
+        // Export to window for inline onclick handlers
+        window.app = GameController;
+
+        // Init on load
+        window.onload = () => {
+            GameController.init();
+        };
+
+    </script>
+</body>
+</html>
