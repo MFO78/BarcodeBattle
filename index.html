@@ -3,38 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Code Battler - Scanner Fixed</title>
+    <title>Barcode Battler</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        body { font-family: sans-serif; overscroll-behavior: none; }
         .screen { display: none; }
         .screen.active { display: flex; flex-direction: column; }
         #reader { width: 100%; height: 300px; display: block; }
-        #reader video { width: 100%; height: 100%; object-fit: cover; }
+        .hero-container { height: 30vh; display: flex; justify-content: center; align-items: center; }
+        .hero-svg { max-height: 100%; max-width: 100%; }
+        .hit { filter: brightness(2) sepia(1); }
     </style>
 </head>
 <body class="bg-slate-900 text-white overflow-hidden">
-    <div id="app" class="h-[100dvh] w-full flex flex-col">
-        <!-- Screens -->
-        <main id="screen-menu" class="screen active flex-1 items-center justify-center">
-            <h1 class="text-3xl font-bold mb-8">Barcode Battler</h1>
-            <button onclick="app.prepScan('p1')" class="bg-amber-600 p-6 rounded-lg w-4/5 font-bold">Scan P1</button>
+    <div id="app" class="h-[100dvh] w-full flex flex-col relative">
+        <!-- Menu -->
+        <main id="screen-menu" class="screen active flex-1 items-center justify-center p-6 space-y-4">
+            <h1 class="text-3xl font-bold text-amber-500">Barcode Battler</h1>
+            <button onclick="app.prepScan('p1')" class="w-full bg-amber-600 p-6 rounded-xl font-bold">Scan P1 Hero</button>
+            <button id="btnP2" onclick="app.prepScan('p2')" disabled class="w-full bg-slate-700 p-6 rounded-xl font-bold opacity-50">Scan P2 (Local)</button>
         </main>
 
+        <!-- Scanner -->
         <main id="screen-scanner" class="screen flex-1 bg-black">
             <div id="reader"></div>
-            <button onclick="app.closeScanner()" class="p-6 bg-red-800 text-white font-bold">Stop Scanner</button>
+            <button onclick="app.closeScanner()" class="p-6 bg-red-800 font-bold">Cancel</button>
         </main>
-        
-        <main id="screen-battle" class="screen flex-1 items-center justify-center">
-            <h2 class="text-2xl font-bold">Battle Active</h2>
-            <button onclick="app.executeTurn()" class="bg-green-600 p-6 rounded-lg">Attack!</button>
+
+        <!-- Reveal -->
+        <main id="screen-reveal" class="screen flex-1 items-center justify-center p-6">
+            <div id="revealVisual" class="w-40 h-40 mb-4"></div>
+            <h2 id="revealName" class="text-xl font-bold mb-6"></h2>
+            <button onclick="app.finalizeHero()" class="w-full bg-green-600 p-6 rounded-xl font-bold">Confirm</button>
         </main>
+
+        <!-- Battle -->
+        <main id="screen-battle" class="screen flex-1 bg-slate-900">
+            <div class="flex-1 flex flex-col items-center justify-center">
+                <div id="enemyVisual" class="hero-container"></div>
+                <div id="diceDisplay" class="my-6 p-6 bg-white text-black font-bold text-3xl rounded-xl">0</div>
+                <div id="playerVisual" class="hero-container transform scale-x-[-1]"></div>
+            </div>
+            <button onclick="app.executeTurn()" class="w-full bg-green-600 p-8 font-bold text-xl">Toss Dice & Attack</button>
+        </main>
+
+        <!-- Result Modal (Integrated) -->
+        <div id="modalResult" class="absolute inset-0 bg-black/90 z-[100] hidden flex-col items-center justify-center p-6">
+            <h2 class="text-4xl font-bold mb-8">Battle Complete</h2>
+            <button onclick="app.concludeBattle()" class="w-full bg-amber-600 p-8 rounded-xl font-bold">Return to Menu</button>
+        </div>
     </div>
 
     <script>
         const App = {
-            scanner: null,
+            scanner: null, ctx: 'p1', p1: null, p2: null,
             init: () => { App.showScreen('menu'); },
             showScreen: (id) => {
                 document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -43,34 +67,37 @@
             prepScan: (ctx) => {
                 App.ctx = ctx;
                 App.showScreen('scanner');
-                // Singleton instantiation
                 if (!App.scanner) App.scanner = new Html5Qrcode("reader");
-                
-                App.scanner.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: 200 },
-                    (d) => App.handleScan(d),
-                    (err) => { /* Suppress noisy errors */ }
-                ).catch(err => {
-                    console.error("Scanner startup failed", err);
-                    alert("Scanner failed. Please check permissions.");
-                });
+                App.scanner.start({facingMode: "environment"}, {fps: 10, qrbox: 200}, (d) => App.handleScan(d));
             },
             handleScan: (code) => {
                 App.closeScanner();
-                alert("Scanned: " + code);
-                App.showScreen('battle');
+                const h = { name: "Unit-" + code.substring(0,3), svg: '<svg viewBox="0 0 100 100" class="hero-svg"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></svg>' };
+                if (App.ctx === 'p1') App.p1 = h; else App.p2 = h;
+                document.getElementById('revealVisual').innerHTML = h.svg;
+                document.getElementById('revealName').innerText = h.name;
+                App.showScreen('reveal');
             },
-            closeScanner: async () => {
-                if (App.scanner && App.scanner.isScanning) {
-                    await App.scanner.stop();
+            finalizeHero: () => {
+                if(App.ctx === 'p1') {
+                    document.getElementById('btnP2').disabled = false;
+                    document.getElementById('btnP2').style.opacity = '1';
+                    App.showScreen('menu');
+                } else {
+                    document.getElementById('enemyVisual').innerHTML = App.p2.svg;
+                    document.getElementById('playerVisual').innerHTML = App.p1.svg;
+                    App.showScreen('battle');
                 }
-                App.showScreen('menu');
             },
-            executeTurn: () => {
-                alert("Attack Successful!");
-                App.showScreen('menu');
-            }
+            executeTurn: async () => {
+                document.getElementById('diceDisplay').innerText = Math.floor(Math.random()*6)+1;
+                document.getElementById('enemyVisual').classList.add('hit');
+                await new Promise(r => setTimeout(r, 300));
+                document.getElementById('enemyVisual').classList.remove('hit');
+                if(Math.random() > 0.5) document.getElementById('modalResult').classList.replace('hidden', 'flex');
+            },
+            closeScanner: async () => { if(App.scanner?.isScanning) await App.scanner.stop(); App.showScreen('menu'); },
+            concludeBattle: () => { document.getElementById('modalResult').classList.replace('flex', 'hidden'); App.showScreen('menu'); }
         };
         window.app = App;
         window.onload = App.init;
