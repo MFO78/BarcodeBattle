@@ -94,7 +94,7 @@
         <main id="screen-scanner" class="screen flex-1 flex-col bg-black">
             <div class="p-4 bg-slate-900 flex justify-between items-center shrink-0">
                 <h2 class="font-bold">Scan Code</h2>
-                <button onclick="app.stopScanner()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
+                <button onclick="app.stopScannerAndReturn()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
             </div>
             
             <!-- Hardware Selection UI for Multi-lens devices -->
@@ -134,31 +134,37 @@
                 
                 <div class="grid grid-cols-2 gap-4 w-full z-10 font-mono text-sm">
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">HP</span>
+                        <span class="text-slate-400">HP (Stamina)</span>
                         <span id="revealHP" class="text-green-400 font-bold"></span>
                     </div>
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">STR</span>
+                        <span class="text-slate-400">STR (Strength)</span>
                         <span id="revealSTR" class="text-orange-400 font-bold"></span>
                     </div>
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">DEF</span>
+                        <span class="text-slate-400">DEF (Defence)</span>
                         <span id="revealDEF" class="text-blue-400 font-bold"></span>
                     </div>
                     <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
-                        <span class="text-slate-400">SPD</span>
+                        <span class="text-slate-400">SPD (Speed)</span>
                         <span id="revealSPD" class="text-yellow-400 font-bold"></span>
                     </div>
                 </div>
             </div>
 
-            <div class="flex gap-4 w-full mt-8">
-                <button onclick="app.keepHero()" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform">
-                    Keep & Return
+            <div class="flex flex-col gap-3 w-full mt-8">
+                <!-- Direct UX Pathing -->
+                <button onclick="app.keepHeroAndFight('cpu')" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
+                    <i class="fa-solid fa-khanda"></i> Fight CPU Now
                 </button>
-                <button onclick="app.showScreen('scanner')" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform">
-                    Discard
-                </button>
+                <div class="flex gap-3">
+                    <button onclick="app.keepHero()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl active:scale-95 transition-transform text-sm">
+                        Keep & Menu
+                    </button>
+                    <button onclick="app.discardAndScan()" class="flex-1 bg-red-900/50 hover:bg-red-800/50 text-red-200 font-bold py-3 rounded-xl border border-red-800 active:scale-95 transition-transform text-sm">
+                        Discard
+                    </button>
+                </div>
             </div>
         </main>
 
@@ -498,6 +504,7 @@
             battleMode: 'cpu',
             network: new Multiplayer(),
             lastProcessedActionTime: 0,
+            isProcessingScan: false, // State Machine Lock
 
             init: async () => {
                 GameController.showScreen('menu');
@@ -508,10 +515,6 @@
                 document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
                 document.getElementById('screen-' + id).classList.add('active');
                 GameController.mode = id;
-
-                if (id !== 'scanner' && GameController.html5QrcodeScanner) {
-                    GameController.stopScanner();
-                }
 
                 if (id === 'scanner') {
                     document.getElementById('scannerError').classList.add('hidden');
@@ -527,19 +530,30 @@
                         const selectEl = document.getElementById('cameraSelect');
                         selectEl.innerHTML = '';
                         
+                        let bestCameraId = devices[0].id; // Fallback
+                        
                         devices.forEach(camera => {
                             const opt = document.createElement('option');
                             opt.value = camera.id;
-                            // Clean up device names for UI
-                            opt.text = camera.label || `Camera ${camera.id.substring(0, 5)}...`;
+                            const label = camera.label || `Camera ${camera.id.substring(0, 5)}...`;
+                            opt.text = label;
                             selectEl.appendChild(opt);
+                            
+                            // Heuristic: Auto-select rear camera if label matches common patterns
+                            if (label.toLowerCase().includes('back') || label.toLowerCase().includes('environment') || label.toLowerCase().includes('rear')) {
+                                bestCameraId = camera.id;
+                            }
                         });
                         
+                        // If heuristic failed, but there are multiple cameras, try the last one (often main rear on Android)
+                        if (bestCameraId === devices[0].id && devices.length > 1) {
+                            bestCameraId = devices[devices.length - 1].id;
+                        }
+
                         document.getElementById('cameraSelectorContainer').classList.remove('hidden');
-                        
-                        // Default to the first camera in the enumerated list
-                        GameController.currentCameraId = devices[0].id;
-                        GameController.startScanner(GameController.currentCameraId);
+                        selectEl.value = bestCameraId;
+                        GameController.currentCameraId = bestCameraId;
+                        GameController.startScanner(bestCameraId);
                     } else {
                         throw new Error("No cameras found.");
                     }
@@ -550,11 +564,13 @@
             },
 
             changeCamera: async (deviceId) => {
-                if (GameController.html5QrcodeScanner && GameController.html5QrcodeScanner.isScanning) {
-                    await GameController.html5QrcodeScanner.stop();
-                }
                 GameController.currentCameraId = deviceId;
-                GameController.startScanner(deviceId);
+                try {
+                    await GameController.stopScanner();
+                    GameController.startScanner(deviceId);
+                } catch (err) {
+                    console.error("Error switching cameras:", err);
+                }
             },
 
             startScanner: (cameraId) => {
@@ -562,14 +578,11 @@
                     GameController.html5QrcodeScanner = new Html5Qrcode("reader");
                 }
                 
-                // Force high resolution and 1D specific formats
+                GameController.isProcessingScan = false;
+                
                 const config = { 
                     fps: 10, 
                     qrbox: { width: 300, height: 150 },
-                    videoConstraints: {
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
-                    },
                     formatsToSupport: [
                         Html5QrcodeSupportedFormats.QR_CODE,
                         Html5QrcodeSupportedFormats.EAN_13,
@@ -581,27 +594,40 @@
                     ]
                 };
                 
-                // Use explicit deviceId instead of facingMode
                 GameController.html5QrcodeScanner.start(
                     cameraId, 
                     config, 
                     (decodedText) => GameController.handleScan(decodedText),
-                    (error) => { /* Ignored to prevent frame log spam */ } 
+                    (error) => { /* Ignored */ } 
                 ).catch(err => {
                     console.error("Camera start failed for ID: " + cameraId, err);
                 });
             },
 
-            stopScanner: () => {
+            stopScanner: async () => {
                 if (GameController.html5QrcodeScanner && GameController.html5QrcodeScanner.isScanning) {
-                    GameController.html5QrcodeScanner.stop().catch(console.error);
+                    try {
+                        await GameController.html5QrcodeScanner.stop();
+                        GameController.html5QrcodeScanner.clear();
+                    } catch (e) {
+                        console.error("Scanner teardown exception:", e);
+                    }
                 }
-                if (GameController.mode === 'scanner') GameController.showScreen('menu');
             },
 
-            handleScan: (code) => {
-                if(!code) return;
-                GameController.stopScanner();
+            stopScannerAndReturn: async () => {
+                await GameController.stopScanner();
+                GameController.showScreen('menu');
+            },
+
+            handleScan: async (code) => {
+                if(!code || GameController.isProcessingScan) return;
+                
+                // Thread Lock: Prevent concurrent decodes from firing multiple transitions
+                GameController.isProcessingScan = true; 
+                
+                // Safely await hardware teardown before mutating DOM
+                await GameController.stopScanner();
                 
                 const h = new Hero(code);
                 
@@ -615,8 +641,10 @@
                 
                 GameController.playerHero = h;
                 GameController.showScreen('reveal');
+                GameController.isProcessingScan = false;
             },
 
+            // --- UX PATHING ---
             keepHero: () => {
                 if(!GameController.playerHero) return;
                 
@@ -631,6 +659,11 @@
                 document.getElementById('menuHeroSTR').innerHTML = `<i class="fa-solid fa-hand-fist text-orange-500"></i> ${GameController.playerHero.str}`;
                 
                 GameController.showScreen('menu');
+            },
+
+            keepHeroAndFight: (mode) => {
+                GameController.keepHero(); // Ensure state is saved to menu preview
+                GameController.startMatchmaking(mode); // Jump immediately to battle
             },
 
             discardAndScan: () => {
