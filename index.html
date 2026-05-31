@@ -3,97 +3,694 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Barcode Battler Engine</title>
+    <title>Barcode Battler</title>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- HTML5 QR Code Scanner -->
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+    <!-- FontAwesome for UI Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
     <style>
-        body { font-family: sans-serif; overscroll-behavior: none; }
+        body { font-family: system-ui, -apple-system, sans-serif; overscroll-behavior: none; }
         .screen { display: none; }
         .screen.active { display: flex; flex-direction: column; }
-        #reader { width: 100%; height: 300px; display: block; }
-        .hero-container { height: 25vh; display: flex; justify-content: center; align-items: center; }
-        .hero-svg { max-height: 100%; max-width: 100%; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5)); }
-        .hit { filter: brightness(2) sepia(1); }
+        
+        /* Dice Animation */
+        @keyframes roll {
+            0% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.2); }
+            100% { transform: rotate(360deg) scale(1); }
+        }
+        .rolling { animation: roll 0.5s ease-in-out; }
+        
+        /* Damage Floating Text Animation */
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-50px) scale(1.5); }
+        }
+        .damage-text { position: absolute; color: #ef4444; font-weight: bold; font-size: 2.5rem; animation: floatUp 1s forwards; pointer-events: none; z-index: 50; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+
+        /* SVG Hero Styles - Constrained to prevent pushing UI off screen */
+        .hero-svg { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 10px 8px rgb(0 0 0 / 0.5)); transition: transform 0.2s; }
+        .hero-container { width: 100%; height: 25vh; display: flex; justify-content: center; align-items: center; }
+        .hero-container.attacking { transform: translateX(20px); }
+        .hero-container.attacking-reverse { transform: translateX(-20px); }
+        .hero-container.hit { filter: brightness(2) sepia(1) hue-rotate(-50deg) saturate(5); }
+        
+        #reader { width: 100%; max-width: 500px; margin: 0 auto; }
+        #reader__scan_region img { display: none; } 
     </style>
 </head>
-<body class="bg-slate-900 text-white overflow-hidden">
-    <div id="app" class="h-[100dvh] w-full flex flex-col relative">
-        <main id="screen-menu" class="screen active flex-1 items-center justify-center p-6 space-y-4">
-            <h1 class="text-3xl font-bold text-amber-500">Barcode Battler</h1>
-            <button onclick="app.prepScan('p1')" class="w-full bg-amber-600 p-6 rounded-xl font-bold">Scan P1 Hero</button>
-            <div class="flex gap-2 w-full">
-                <button id="btnP2" onclick="app.prepScan('p2')" disabled class="flex-1 bg-slate-700 p-6 rounded-xl font-bold opacity-50">Scan P2</button>
-                <button id="btnAi" onclick="app.startAiBattle()" disabled class="flex-1 bg-blue-700 p-6 rounded-xl font-bold opacity-50">VS AI</button>
+<body class="bg-slate-900 text-slate-100 h-[100dvh] w-screen overflow-hidden flex justify-center items-center">
+
+    <!-- App Container - Using dvh to strictly map to the visual viewport -->
+    <div id="app" class="w-full max-w-md h-[100dvh] bg-slate-800 shadow-2xl relative flex flex-col">
+        
+        <!-- Header -->
+        <header class="bg-slate-950 p-4 flex justify-between items-center border-b border-slate-700 shrink-0">
+            <h1 class="text-xl font-bold text-amber-400"><i class="fa-solid fa-barcode mr-2"></i>Code Battler</h1>
+            <span class="text-xs font-mono text-green-400">Local Mode</span>
+        </header>
+
+        <!-- SCREEN: Main Menu -->
+        <main id="screen-menu" class="screen active flex-1 p-6 flex-col justify-center overflow-y-auto">
+            <div class="text-center mb-6 shrink-0 mt-4">
+                <i class="fa-solid fa-qrcode text-6xl text-amber-500 mb-4"></i>
+                <h2 class="text-2xl font-bold">Scan & Fight</h2>
+                <p class="text-sm text-slate-400 mt-2">Generate unique heroes from barcodes.</p>
+            </div>
+
+            <!-- Current Hero Display -->
+            <div id="currentHeroPreview" class="hidden w-full bg-slate-700 rounded-xl p-4 flex-col items-center border border-slate-600 shadow-inner shrink-0 mb-6">
+                <h3 class="text-sm text-slate-300 mb-2 font-bold">Player 1 Ready</h3>
+                <div id="menuHeroVisual" class="w-24 h-24 mb-2"></div>
+                <div class="flex justify-center gap-4 text-xs font-mono text-amber-300 w-full">
+                    <span id="menuHeroHP"><i class="fa-solid fa-heart text-red-500"></i> --</span>
+                    <span id="menuHeroSTR"><i class="fa-solid fa-hand-fist text-orange-500"></i> --</span>
+                    <span id="menuHeroDEF"><i class="fa-solid fa-shield text-blue-500"></i> --</span>
+                </div>
+            </div>
+
+            <div class="w-full space-y-3 mt-auto shrink-0 pb-4">
+                <button onclick="app.prepScan('p1')" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
+                    <i class="fa-solid fa-camera"></i> Scan P1 Hero
+                </button>
+                
+                <div class="grid grid-cols-2 gap-3 w-full">
+                    <button onclick="app.startMatchmaking('cpu')" id="btnVsCpu" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center">
+                        <i class="fa-solid fa-robot mb-1 text-xl"></i> Vs CPU
+                    </button>
+                    <button onclick="app.prepScan('p2')" id="btnPassPlay" disabled class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center">
+                        <i class="fa-solid fa-mobile-screen-button mb-1 text-xl"></i> Pass & Play
+                    </button>
+                </div>
             </div>
         </main>
 
-        <main id="screen-scanner" class="screen flex-1 bg-black">
-            <div id="reader"></div>
-            <button onclick="app.closeScanner()" class="p-6 bg-red-800 font-bold">Cancel</button>
-        </main>
-
-        <main id="screen-battle" class="screen flex-1 bg-slate-900">
-            <div class="flex-1 flex flex-col items-center justify-center">
-                <div id="enemyVisual" class="hero-container"></div>
-                <div id="diceDisplay" class="my-6 p-6 bg-white text-black font-bold text-3xl rounded-xl">0</div>
-                <div id="playerVisual" class="hero-container transform scale-x-[-1]"></div>
+        <!-- SCREEN: Scanner -->
+        <main id="screen-scanner" class="screen flex-1 flex-col bg-black">
+            <div class="p-4 bg-slate-900 flex justify-between items-center shrink-0">
+                <h2 class="font-bold" id="scannerTitle">Scan Code</h2>
+                <button onclick="app.stopScannerAndReturn()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
             </div>
-            <button onclick="app.executeTurn()" class="w-full bg-green-600 p-8 font-bold text-xl">Attack!</button>
+            
+            <div id="cameraSelectorContainer" class="hidden bg-slate-800 p-2 border-b border-slate-700 shrink-0">
+                <label for="cameraSelect" class="text-xs text-slate-400 block mb-1">Hardware Lens Select:</label>
+                <select id="cameraSelect" onchange="app.changeCamera(this.value)" class="w-full bg-slate-900 text-sm text-white p-2 rounded border border-slate-600 focus:border-amber-500 outline-none">
+                    <option value="">Loading cameras...</option>
+                </select>
+            </div>
+
+            <div class="flex-1 relative flex items-center justify-center bg-slate-950 overflow-hidden min-h-[300px]">
+                <div id="reader"></div>
+            </div>
+            
+            <div class="p-4 bg-slate-900 shrink-0 border-t border-slate-800 pb-6">
+                <p class="text-xs text-center text-slate-400 mb-3">Align standard barcodes horizontally.</p>
+                <div class="flex gap-2">
+                    <input type="text" id="manualCode" placeholder="Or enter mock code..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
+                    <button onclick="app.handleScan(document.getElementById('manualCode').value)" class="bg-amber-600 px-4 py-2 rounded-lg hover:bg-amber-500 font-bold transition-colors">Simulate</button>
+                </div>
+            </div>
         </main>
 
-        <div id="modalResult" class="absolute inset-0 bg-black/90 z-[100] hidden flex-col items-center justify-center p-6">
-            <h2 class="text-4xl font-bold mb-8 text-amber-500">Battle Over</h2>
-            <button onclick="app.concludeBattle()" class="w-full bg-amber-600 p-8 rounded-xl font-bold">Menu</button>
+        <!-- SCREEN: Hero Reveal -->
+        <main id="screen-reveal" class="screen flex-1 p-6 flex-col justify-center items-center overflow-y-auto">
+            <h2 class="text-3xl font-bold text-amber-400 mb-6 text-center shrink-0" id="revealTitle">Hero Discovered!</h2>
+            
+            <div class="bg-slate-800 border-2 border-slate-700 rounded-2xl p-6 w-full max-w-sm flex flex-col items-center shadow-2xl relative shrink-0">
+                <div class="absolute inset-0 bg-gradient-to-b from-transparent to-slate-900/80 pointer-events-none rounded-2xl"></div>
+                <div id="revealVisual" class="w-40 h-40 mb-6 relative z-10"></div>
+                
+                <h3 id="revealName" class="text-2xl font-bold mb-4 z-10 font-mono tracking-wider"></h3>
+                
+                <div class="grid grid-cols-2 gap-3 w-full z-10 font-mono text-sm">
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">HP</span>
+                        <span id="revealHP" class="text-green-400 font-bold text-lg"></span>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">STR</span>
+                        <span id="revealSTR" class="text-orange-400 font-bold text-lg"></span>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">DEF</span>
+                        <span id="revealDEF" class="text-blue-400 font-bold text-lg"></span>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700">
+                        <span class="text-slate-400">SPD</span>
+                        <span id="revealSPD" class="text-yellow-400 font-bold text-lg"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="revealActionContainer" class="flex flex-col gap-3 w-full mt-8 shrink-0 pb-6">
+                <!-- Dynamically populated by JS based on P1 or P2 scan context -->
+            </div>
+        </main>
+
+        <!-- SCREEN: Battle -->
+        <main id="screen-battle" class="screen flex-1 flex-col relative bg-slate-900 overflow-hidden">
+            <!-- Top HUD: Player 2 (or CPU) -->
+            <div class="bg-slate-950 p-4 flex justify-between items-center border-b border-red-900/50 shrink-0 z-20 shadow-md">
+                <div class="flex flex-col">
+                    <span id="enemyName" class="text-sm font-mono text-red-400 uppercase font-bold tracking-widest">Player 2</span>
+                    <span class="text-base font-bold" id="enemyHpText">0 / 0 HP</span>
+                </div>
+                <div class="w-1/2 bg-slate-800 h-6 rounded-full overflow-hidden border border-slate-700">
+                    <div id="enemyHpBar" class="bg-red-500 h-full w-full transition-all duration-300"></div>
+                </div>
+            </div>
+
+            <!-- Battle Arena -->
+            <div class="flex-1 relative flex flex-col justify-between p-4 z-10 min-h-0">
+                <!-- Enemy Sprite -->
+                <div class="flex-1 flex justify-center items-start min-h-0 pt-2">
+                    <div id="enemyVisual" class="hero-container transform transition-transform"></div>
+                </div>
+                
+                <!-- Center: Dice and Status -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+                    <div class="flex flex-col items-center bg-slate-900/90 p-4 rounded-2xl border border-slate-700 backdrop-blur-md shadow-2xl">
+                        <span id="turnIndicator" class="text-base font-bold text-amber-400 mb-2 uppercase tracking-widest">P1 Turn</span>
+                        <div id="diceDisplay" class="w-20 h-20 bg-white rounded-xl shadow-inner flex items-center justify-center text-5xl font-bold text-slate-900 border-4 border-slate-300">
+                            <i class="fa-solid fa-dice-d6"></i>
+                        </div>
+                        <span id="actionText" class="text-sm font-bold text-slate-300 mt-3 h-5">Prepare to fight!</span>
+                    </div>
+                </div>
+
+                <!-- Player Sprite -->
+                <div class="flex-1 flex justify-center items-end min-h-0 pb-2">
+                    <div id="playerVisual" class="hero-container transform transition-transform scale-x-[-1]"></div>
+                </div>
+            </div>
+
+            <!-- Bottom HUD: Player 1 & Action Button -->
+            <div class="bg-slate-950 p-4 pb-6 border-t border-slate-800 shrink-0 z-20 shadow-[0_-10px_15px_rgba(0,0,0,0.3)]">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="w-1/2 bg-slate-800 h-6 rounded-full overflow-hidden border border-slate-700">
+                        <div id="playerHpBar" class="bg-green-500 h-full w-full transition-all duration-300"></div>
+                    </div>
+                    <div class="flex flex-col text-right">
+                        <span class="text-sm font-mono text-green-400 uppercase font-bold tracking-widest">Player 1</span>
+                        <span class="text-base font-bold" id="playerHpText">0 / 0 HP</span>
+                    </div>
+                </div>
+                
+                <button id="btnRollDice" onclick="app.executeTurn()" class="w-full bg-green-600 hover:bg-green-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold py-5 rounded-xl shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 text-xl">
+                    <i class="fa-solid fa-dice"></i> <span id="btnRollText">P1: Toss Dice & Attack</span>
+                </button>
+            </div>
+        </main>
+
+        <!-- Modal: Battle Result -->
+        <div id="modalResult" class="absolute inset-0 bg-black/95 z-50 hidden flex-col items-center justify-center p-6 backdrop-blur-md">
+            <h2 id="resultTitle" class="text-6xl font-bold mb-4 uppercase italic tracking-tighter text-center text-yellow-400">Victory!</h2>
+            <p id="resultDesc" class="text-slate-300 mb-10 text-center text-lg px-4"></p>
+            
+            <div class="flex flex-col w-full gap-4 max-w-xs">
+                <button onclick="app.concludeBattle()" class="w-full bg-amber-600 py-4 rounded-xl font-bold text-xl shadow-lg active:scale-95 transition-transform">
+                    Return to Menu
+                </button>
+            </div>
         </div>
+
     </div>
 
+    <!-- Scripts -->
     <script>
-        const App = {
-            scanner: null, p1: null, p2: null,
-            init: () => { App.showScreen('menu'); },
+        // ==========================================
+        // 1. UTILITIES & GENERATION
+        // ==========================================
+        const Utils = {
+            hashString: (str) => {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash |= 0; 
+                }
+                const seed = Math.abs(hash);
+                return [
+                    (seed >> 24) & 255, (seed >> 16) & 255, (seed >> 8) & 255, seed & 255,
+                    (seed * 13 >> 16) & 255, (seed * 17 >> 8) & 255, (seed * 23) & 255, (seed * 31 >> 4) & 255
+                ];
+            },
+            rollDie: () => Math.floor(Math.random() * 6) + 1,
+            sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+            generateCode: () => Math.floor(100000 + Math.random() * 900000).toString()
+        };
+
+        const SvgGenerator = {
+            heads: [
+                `<rect x="35" y="10" width="30" height="30" rx="4" fill="currentColor"/><path d="M40 25 h20 M50 25 v15" stroke="#1e293b" stroke-width="2"/>`,
+                `<polygon points="50,5 30,35 70,35" fill="currentColor"/><circle cx="50" cy="25" r="5" fill="#1e293b"/>`,
+                `<circle cx="50" cy="25" r="18" fill="currentColor"/><rect x="40" y="20" width="20" height="8" rx="4" fill="#1e293b"/>`
+            ],
+            bodies: [
+                `<rect x="25" y="40" width="50" height="40" rx="8" fill="currentColor"/><path d="M25 50 h50 M25 70 h50" stroke="#1e293b" stroke-width="2"/>`,
+                `<polygon points="50,40 20,80 80,80" fill="currentColor"/><circle cx="50" cy="60" r="10" fill="#1e293b"/>`,
+                `<rect x="35" y="40" width="30" height="50" rx="15" fill="currentColor"/><rect x="45" y="55" width="10" height="20" fill="#38bdf8"/>`
+            ],
+            weapons: [
+                `<rect x="80" y="30" width="6" height="50" fill="#94a3b8"/><rect x="75" y="60" width="16" height="6" fill="currentColor"/>`,
+                `<rect x="80" y="30" width="6" height="60" fill="#78350f"/><path d="M86 40 Q 100 40 100 55 Q 100 70 86 70 Z" fill="currentColor"/>`,
+                `<rect x="80" y="20" width="4" height="70" fill="#78350f"/><circle cx="82" cy="20" r="8" fill="currentColor"/>`
+            ],
+            arms: `<rect x="15" y="45" width="10" height="25" rx="5" fill="currentColor"/><rect x="75" y="45" width="10" height="25" rx="5" fill="currentColor"/>`,
+            legs: `<rect x="35" y="80" width="10" height="15" fill="currentColor"/><rect x="55" y="80" width="10" height="15" fill="currentColor"/>`,
+            
+            build: (hashArray) => {
+                const head = SvgGenerator.heads[hashArray[4] % 3];
+                const body = SvgGenerator.bodies[hashArray[5] % 3];
+                const weapon = SvgGenerator.weapons[hashArray[6] % 3];
+                const hue = hashArray[7];
+                
+                return `
+                <svg viewBox="0 0 110 100" xmlns="http://www.w3.org/2000/svg" class="hero-svg" style="color: hsl(${hue}, 70%, 50%);">
+                    ${SvgGenerator.arms}
+                    ${SvgGenerator.legs}
+                    ${body}
+                    ${head}
+                    ${weapon}
+                </svg>`;
+            }
+        };
+
+        class Hero {
+            constructor(code, isCpu = false) {
+                this.code = code;
+                const hash = Utils.hashString(code);
+                this.maxHp = 50 + Math.floor((hash[0] / 255) * 100);
+                this.hp = this.maxHp;
+                this.str = 5 + Math.floor((hash[1] / 255) * 15);
+                this.def = 1 + Math.floor((hash[2] / 255) * 9);
+                this.spd = 1 + Math.floor((hash[3] / 255) * 19);
+                this.svg = SvgGenerator.build(hash);
+                this.name = isCpu ? "CPU-" + code.toString().substring(0, 4).toUpperCase() : "U-" + code.toString().substring(0, 4).toUpperCase();
+            }
+        }
+
+        // ==========================================
+        // 2. GAME CONTROLLER (UI & LOGIC)
+        // ==========================================
+        const GameController = {
+            p1Hero: null,
+            p2Hero: null,
+            html5QrcodeScanner: null,
+            currentCameraId: null,
+            battleMode: 'cpu', // 'cpu' or 'local'
+            isProcessingScan: false, 
+            scanningContext: 'p1', 
+            currentTurn: 1, 
+            battleActive: false,
+
+            init: () => {
+                GameController.showScreen('menu');
+            },
+
             showScreen: (id) => {
                 document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
                 document.getElementById('screen-' + id).classList.add('active');
             },
-            prepScan: (ctx) => {
-                App.ctx = ctx;
-                App.showScreen('scanner');
-                if (!App.scanner) App.scanner = new Html5Qrcode("reader");
-                App.scanner.start({facingMode: "environment"}, {fps: 10, qrbox: 200}, (d) => App.handleScan(d));
+
+            // --- SCANNER HARDWARE SETUP ---
+            prepScan: (context) => {
+                GameController.scanningContext = context;
+                document.getElementById('scannerTitle').innerText = context === 'p1' ? "Scan P1 Hero" : "Scan P2 Hero";
+                GameController.showScreen('scanner');
+                GameController.initHardwareScanner();
             },
-            handleScan: (code) => {
-                App.scanner.stop();
-                const hash = code.length;
-                const h = { name: "U-" + code.substring(0,3), svg: `<svg viewBox="0 0 100 100" class="hero-svg" fill="hsl(${hash*50}, 70%, 50%)"><rect x="25" y="25" width="50" height="50"/></svg>` };
-                if (App.ctx === 'p1') {
-                    App.p1 = h;
-                    document.getElementById('btnP2').disabled = false;
-                    document.getElementById('btnP2').style.opacity = '1';
-                    document.getElementById('btnAi').disabled = false;
-                    document.getElementById('btnAi').style.opacity = '1';
-                } else App.p2 = h;
-                App.showScreen('menu');
+
+            initHardwareScanner: () => {
+                if (typeof Html5Qrcode === 'undefined') return;
+
+                Html5Qrcode.getCameras().then(devices => {
+                    if (devices && devices.length) {
+                        const selectEl = document.getElementById('cameraSelect');
+                        selectEl.innerHTML = '';
+                        let bestCameraId = devices[0].id;
+                        
+                        devices.forEach(camera => {
+                            const opt = document.createElement('option');
+                            opt.value = camera.id;
+                            const label = camera.label || `Camera ${camera.id.substring(0, 5)}...`;
+                            opt.text = label;
+                            selectEl.appendChild(opt);
+                            
+                            // Heuristic for rear camera on Android
+                            if (label.toLowerCase().includes('back') || label.toLowerCase().includes('environment') || label.toLowerCase().includes('0')) {
+                                bestCameraId = camera.id;
+                            }
+                        });
+                        
+                        if (devices.length > 1) {
+                            document.getElementById('cameraSelectorContainer').classList.remove('hidden');
+                        }
+                        
+                        selectEl.value = bestCameraId;
+                        GameController.startScanner(bestCameraId);
+                    } else {
+                        throw new Error("No cameras found.");
+                    }
+                }).catch(err => {
+                    console.warn("Camera enum failed. Trying default environment.", err);
+                    GameController.startScanner(null);
+                });
             },
-            startAiBattle: () => {
-                App.p2 = { name: "AI-Boss", svg: `<svg viewBox="0 0 100 100" class="hero-svg" fill="red"><circle cx="50" cy="50" r="30"/></svg>` };
-                App.launchBattle();
+
+            changeCamera: async (deviceId) => {
+                try {
+                    await GameController.stopScannerInternal();
+                    GameController.startScanner(deviceId);
+                } catch (err) { console.error(err); }
             },
-            launchBattle: () => {
-                document.getElementById('enemyVisual').innerHTML = App.p2.svg;
-                document.getElementById('playerVisual').innerHTML = App.p1.svg;
-                App.showScreen('battle');
+
+            startScanner: (cameraId) => {
+                if (!GameController.html5QrcodeScanner) {
+                    GameController.html5QrcodeScanner = new Html5Qrcode("reader");
+                }
+                
+                GameController.isProcessingScan = false;
+                
+                // Explicit format support helps Android correctly identify 1D barcodes
+                const config = { 
+                    fps: 10, 
+                    qrbox: { width: 300, height: 150 },
+                    formatsToSupport: [
+                        Html5QrcodeSupportedFormats.QR_CODE,
+                        Html5QrcodeSupportedFormats.EAN_13,
+                        Html5QrcodeSupportedFormats.UPC_A,
+                        Html5QrcodeSupportedFormats.CODE_128,
+                        Html5QrcodeSupportedFormats.CODE_39
+                    ]
+                };
+                
+                const cameraConfig = cameraId ? { deviceId: { exact: cameraId } } : { facingMode: "environment" };
+                
+                GameController.html5QrcodeScanner.start(
+                    cameraConfig, 
+                    config, 
+                    (decodedText) => GameController.handleScan(decodedText),
+                    (error) => { /* Ignore frame errors */ } 
+                ).catch(err => console.error("Camera start failed", err));
             },
+
+            stopScannerInternal: async () => {
+                if (GameController.html5QrcodeScanner && GameController.html5QrcodeScanner.isScanning) {
+                    await GameController.html5QrcodeScanner.stop();
+                    GameController.html5QrcodeScanner.clear();
+                }
+            },
+
+            stopScannerAndReturn: async () => {
+                await GameController.stopScannerInternal();
+                GameController.showScreen('menu');
+            },
+
+            handleScan: async (code) => {
+                if(!code || GameController.isProcessingScan) return;
+                GameController.isProcessingScan = true; 
+                
+                // Critical: Await hardware teardown before mutating DOM heavy states
+                await GameController.stopScannerInternal(); 
+                
+                const h = new Hero(code);
+                
+                document.getElementById('revealTitle').innerText = GameController.scanningContext === 'p1' ? "P1 Hero Found!" : "P2 Hero Found!";
+                document.getElementById('revealVisual').innerHTML = h.svg;
+                document.getElementById('revealName').innerText = h.name;
+                document.getElementById('revealHP').innerText = h.hp;
+                document.getElementById('revealSTR').innerText = h.str;
+                document.getElementById('revealDEF').innerText = h.def;
+                document.getElementById('revealSPD').innerText = h.spd;
+                
+                const container = document.getElementById('revealActionContainer');
+                if (GameController.scanningContext === 'p1') {
+                    GameController.p1TempHero = h;
+                    container.innerHTML = `
+                        <button onclick="app.keepP1Hero()" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg">
+                            Keep Hero & Return
+                        </button>
+                        <button onclick="app.discardAndRescan()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl active:scale-95 transition-transform text-sm">
+                            Discard & Try Again
+                        </button>`;
+                } else {
+                    GameController.p2Hero = h;
+                    container.innerHTML = `
+                        <button onclick="app.startMatchmaking('local')" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 text-lg uppercase tracking-wider">
+                            <i class="fa-solid fa-khanda"></i> Start Local Battle!
+                        </button>
+                        <button onclick="app.discardAndRescan()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl active:scale-95 transition-transform text-sm">
+                            P2: Discard & Rescan
+                        </button>`;
+                }
+                
+                GameController.showScreen('reveal');
+                GameController.isProcessingScan = false;
+            },
+
+            keepP1Hero: () => {
+                GameController.p1Hero = GameController.p1TempHero;
+                document.getElementById('btnVsCpu').disabled = false;
+                document.getElementById('btnPassPlay').disabled = false;
+                
+                document.getElementById('currentHeroPreview').classList.remove('hidden');
+                document.getElementById('currentHeroPreview').classList.add('flex');
+                document.getElementById('menuHeroVisual').innerHTML = GameController.p1Hero.svg;
+                document.getElementById('menuHeroHP').innerHTML = `<i class="fa-solid fa-heart text-red-500"></i> ${GameController.p1Hero.hp}`;
+                document.getElementById('menuHeroSTR').innerHTML = `<i class="fa-solid fa-hand-fist text-orange-500"></i> ${GameController.p1Hero.str}`;
+                document.getElementById('menuHeroDEF').innerHTML = `<i class="fa-solid fa-shield text-blue-500"></i> ${GameController.p1Hero.def}`;
+                
+                GameController.showScreen('menu');
+            },
+
+            discardAndRescan: () => {
+                GameController.prepScan(GameController.scanningContext);
+            },
+
+            // --- BATTLE ENGINE ---
+            startMatchmaking: (type) => {
+                GameController.battleMode = type;
+                GameController.battleActive = true;
+                
+                if (type === 'cpu') {
+                    const cpuCode = Utils.generateCode();
+                    GameController.p2Hero = new Hero(cpuCode, true);
+                    
+                    // Balance CPU HP relative to P1
+                    GameController.p2Hero.maxHp = GameController.p1Hero.maxHp + (Math.floor(Math.random()*40)-20);
+                    if(GameController.p2Hero.maxHp < 20) GameController.p2Hero.maxHp = 20;
+                    GameController.p2Hero.hp = GameController.p2Hero.maxHp;
+                    
+                    document.getElementById('enemyName').innerText = "CPU";
+                    document.getElementById('enemyName').classList.replace('text-red-400', 'text-slate-400');
+                } else {
+                    document.getElementById('enemyName').innerText = "Player 2";
+                    document.getElementById('enemyName').classList.replace('text-slate-400', 'text-red-400');
+                }
+                
+                // Speed check for first turn
+                GameController.currentTurn = GameController.p1Hero.spd >= GameController.p2Hero.spd ? 1 : 2;
+                
+                GameController.initBattleUI();
+                GameController.showScreen('battle');
+                GameController.processTurnStart();
+            },
+
+            initBattleUI: () => {
+                document.getElementById('playerVisual').innerHTML = GameController.p1Hero.svg;
+                document.getElementById('enemyVisual').innerHTML = GameController.p2Hero.svg;
+                GameController.updateHpBars();
+                
+                document.getElementById('actionText').innerText = "Prepare to fight!";
+                document.getElementById('diceDisplay').innerHTML = `<i class="fa-solid fa-dice-d6"></i>`;
+            },
+
+            updateHpBars: () => {
+                const p1 = GameController.p1Hero;
+                const p2 = GameController.p2Hero;
+                
+                document.getElementById('playerHpText').innerText = `${p1.hp > 0 ? p1.hp : 0} / ${p1.maxHp} HP`;
+                document.getElementById('enemyHpText').innerText = `${p2.hp > 0 ? p2.hp : 0} / ${p2.maxHp} HP`;
+                
+                document.getElementById('playerHpBar').style.width = `${Math.max(0, (p1.hp / p1.maxHp) * 100)}%`;
+                document.getElementById('enemyHpBar').style.width = `${Math.max(0, (p2.hp / p2.maxHp) * 100)}%`;
+            },
+
+            showDamageText: (targetId, dmg) => {
+                const target = document.getElementById(targetId);
+                const dmgEl = document.createElement('div');
+                dmgEl.className = 'damage-text';
+                dmgEl.innerText = `-${dmg}`;
+                target.appendChild(dmgEl);
+                setTimeout(() => dmgEl.remove(), 1000);
+                
+                target.querySelector('svg').classList.add('hit');
+                setTimeout(() => target.querySelector('svg').classList.remove('hit'), 200);
+            },
+
+            animateAttack: async (attackerId) => {
+                const el = document.getElementById(attackerId);
+                const attackClass = attackerId === 'playerVisual' ? 'attacking' : 'attacking-reverse';
+                el.classList.add(attackClass);
+                await Utils.sleep(200);
+                el.classList.remove(attackClass);
+                await Utils.sleep(100);
+            },
+
+            processTurnStart: async () => {
+                if(!GameController.battleActive) return;
+                
+                const btn = document.getElementById('btnRollDice');
+                const btnText = document.getElementById('btnRollText');
+                const indicator = document.getElementById('turnIndicator');
+                
+                if (GameController.currentTurn === 1) {
+                    btn.disabled = false;
+                    btn.className = "w-full bg-green-600 hover:bg-green-500 text-white font-bold py-5 rounded-xl shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 text-xl";
+                    btnText.innerText = "P1: Toss Dice & Attack";
+                    indicator.innerText = "P1 Turn";
+                    indicator.className = "text-base font-bold text-green-400 mb-2 uppercase tracking-widest";
+                } else {
+                    if (GameController.battleMode === 'cpu') {
+                        btn.disabled = true;
+                        btn.className = "w-full bg-slate-700 text-slate-500 font-bold py-5 rounded-xl shadow-lg transition-all flex justify-center items-center gap-2 text-xl";
+                        btnText.innerText = "CPU is acting...";
+                        indicator.innerText = "CPU Turn";
+                        indicator.className = "text-base font-bold text-slate-400 mb-2 uppercase tracking-widest";
+                        GameController.executeCpuTurn();
+                    } else {
+                        btn.disabled = false;
+                        btn.className = "w-full bg-red-600 hover:bg-red-500 text-white font-bold py-5 rounded-xl shadow-lg active:scale-95 transition-all flex justify-center items-center gap-2 text-xl";
+                        btnText.innerText = "P2: Toss Dice & Attack";
+                        indicator.innerText = "P2 Turn";
+                        indicator.className = "text-base font-bold text-red-400 mb-2 uppercase tracking-widest";
+                    }
+                }
+            },
+
             executeTurn: async () => {
-                document.getElementById('diceDisplay').innerText = Math.floor(Math.random()*6)+1;
-                document.getElementById('enemyVisual').classList.add('hit');
-                await new Promise(r => setTimeout(r, 300));
-                document.getElementById('enemyVisual').classList.remove('hit');
-                if(Math.random() > 0.5) document.getElementById('modalResult').classList.replace('hidden', 'flex');
+                if(!GameController.battleActive) return;
+                const isP1 = GameController.currentTurn === 1;
+                
+                document.getElementById('btnRollDice').disabled = true;
+                
+                const diceEl = document.getElementById('diceDisplay');
+                diceEl.classList.add('rolling');
+                document.getElementById('actionText').innerText = "Rolling...";
+                
+                await Utils.sleep(500); 
+                
+                const roll = Utils.rollDie();
+                diceEl.classList.remove('rolling');
+                diceEl.innerHTML = roll;
+                
+                const attacker = isP1 ? GameController.p1Hero : GameController.p2Hero;
+                const defender = isP1 ? GameController.p2Hero : GameController.p1Hero;
+                const attackerVisual = isP1 ? 'playerVisual' : 'enemyVisual';
+                const defenderVisual = isP1 ? 'enemyVisual' : 'playerVisual';
+                
+                // Damage calculation: Minimum 1 damage
+                const dmg = Math.max(1, (attacker.str * roll) - defender.def);
+                document.getElementById('actionText').innerText = `Rolled ${roll}! Dealing ${dmg} DMG.`;
+                
+                await GameController.animateAttack(attackerVisual);
+                GameController.showDamageText(defenderVisual, dmg);
+                
+                defender.hp -= dmg;
+                GameController.updateHpBars();
+                
+                await Utils.sleep(1000);
+
+                if (defender.hp <= 0) {
+                    GameController.endBattle(isP1 ? 'p1' : 'p2');
+                } else {
+                    GameController.currentTurn = isP1 ? 2 : 1;
+                    GameController.processTurnStart();
+                }
             },
-            concludeBattle: () => { document.getElementById('modalResult').classList.replace('flex', 'hidden'); App.showScreen('menu'); }
+
+            executeCpuTurn: async () => {
+                await Utils.sleep(1000);
+                if(!GameController.battleActive) return;
+                
+                const diceEl = document.getElementById('diceDisplay');
+                diceEl.classList.add('rolling');
+                document.getElementById('actionText').innerText = "CPU Rolling...";
+                
+                await Utils.sleep(500);
+                const roll = Utils.rollDie();
+                diceEl.classList.remove('rolling');
+                diceEl.innerHTML = roll;
+                
+                const dmg = Math.max(1, (GameController.p2Hero.str * roll) - GameController.p1Hero.def);
+                document.getElementById('actionText').innerText = `CPU rolled ${roll}! Took ${dmg} DMG.`;
+                
+                await GameController.animateAttack('enemyVisual');
+                GameController.showDamageText('playerVisual', dmg);
+                
+                GameController.p1Hero.hp -= dmg;
+                GameController.updateHpBars();
+                
+                await Utils.sleep(1000);
+                
+                if (GameController.p1Hero.hp <= 0) {
+                    GameController.endBattle('cpu');
+                } else {
+                    GameController.currentTurn = 1;
+                    GameController.processTurnStart();
+                }
+            },
+
+            endBattle: (winner) => {
+                GameController.battleActive = false;
+                const modal = document.getElementById('modalResult');
+                const title = document.getElementById('resultTitle');
+                const desc = document.getElementById('resultDesc');
+                
+                modal.classList.replace('hidden', 'flex');
+                
+                if (winner === 'p1') {
+                    title.innerText = "P1 VICTORY!";
+                    title.className = "text-6xl font-bold mb-4 uppercase italic tracking-tighter text-green-400 text-center";
+                    desc.innerText = "Player 1's hero survives to fight another day.";
+                    if(GameController.p1Hero) GameController.p1Hero.hp = GameController.p1Hero.maxHp;
+                } else if (winner === 'p2') {
+                    title.innerText = "P2 VICTORY!";
+                    title.className = "text-6xl font-bold mb-4 uppercase italic tracking-tighter text-red-500 text-center";
+                    desc.innerText = "Player 2 destroyed Player 1.";
+                    GameController.clearP1();
+                } else {
+                    title.innerText = "DEFEATED";
+                    title.className = "text-6xl font-bold mb-4 uppercase italic tracking-tighter text-slate-400 text-center";
+                    desc.innerText = "The CPU destroyed your hero.";
+                    GameController.clearP1();
+                }
+            },
+            
+            clearP1: () => {
+                GameController.p1Hero = null;
+                document.getElementById('currentHeroPreview').classList.add('hidden');
+                document.getElementById('currentHeroPreview').classList.remove('flex');
+                document.getElementById('btnVsCpu').disabled = true;
+                document.getElementById('btnPassPlay').disabled = true;
+            },
+            
+            concludeBattle: () => {
+                document.getElementById('modalResult').classList.replace('flex', 'hidden');
+                GameController.p2Hero = null; // Clear opponent
+                GameController.showScreen('menu');
+            }
         };
-        window.app = App;
-        window.onload = App.init;
+
+        window.app = GameController;
+        window.onload = () => { GameController.init(); };
     </script>
 </body>
 </html>
